@@ -1,0 +1,10 @@
+{
+  "state": "AR",
+  "pulled_at": "2026-06-03T20:25:09+00:00",
+  "row_counts": {
+    "water_systems": 4247,
+    "geo": 4244,
+    "violations": 22163,
+    "lcr_samples": 691
+  }
+}

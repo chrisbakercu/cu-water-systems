@@ -1,0 +1,10 @@
+{
+  "state": "AL",
+  "pulled_at": "2026-06-03T20:25:43+00:00",
+  "row_counts": {
+    "water_systems": 1817,
+    "geo": 1809,
+    "violations": 16706,
+    "lcr_samples": 2027
+  }
+}

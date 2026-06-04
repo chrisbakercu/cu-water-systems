@@ -1,0 +1,10 @@
+{
+  "state": "TX",
+  "pulled_at": "2026-06-03T20:35:03+00:00",
+  "row_counts": {
+    "water_systems": 16547,
+    "geo": 16450,
+    "violations": 361715,
+    "lcr_samples": 16586
+  }
+}

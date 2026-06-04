@@ -1,0 +1,10 @@
+{
+  "state": "LA",
+  "pulled_at": "2026-06-03T20:36:25+00:00",
+  "row_counts": {
+    "geo": 5137,
+    "lcr_samples": 4403,
+    "violations": 36745,
+    "water_systems": 5160
+  }
+}

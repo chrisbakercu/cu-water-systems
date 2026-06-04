@@ -1,0 +1,10 @@
+{
+  "state": "TN",
+  "pulled_at": "2026-06-03T20:29:29+00:00",
+  "row_counts": {
+    "water_systems": 4990,
+    "geo": 4987,
+    "violations": 12685,
+    "lcr_samples": 2219
+  }
+}

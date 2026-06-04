@@ -1,0 +1,10 @@
+{
+  "state": "OK",
+  "pulled_at": "2026-06-03T20:28:46+00:00",
+  "row_counts": {
+    "water_systems": 5712,
+    "geo": 5530,
+    "violations": 159246,
+    "lcr_samples": 4983
+  }
+}
