@@ -272,25 +272,29 @@ def _password_gate() -> None:
             background: #0088ce !important;
           }
         </style>
-        <div class='login-card'>
-          <div class='login-eyebrow'>Communities Unlimited</div>
-          <div class='login-title'>Water Systems</div>
-          <div class='login-help'>
-            This dashboard is access-controlled. Enter the password your CU
-            contact shared with you to continue.
-          </div>
         """,
         unsafe_allow_html=True,
     )
-    with st.form("login", clear_on_submit=True):
-        pw = st.text_input(
-            "Password",
-            type="password",
-            placeholder="Type the access password here",
-            label_visibility="visible",
+    with st.container(border=True):
+        st.markdown(
+            """
+            <div class='login-eyebrow'>Communities Unlimited</div>
+            <div class='login-title'>Water Systems</div>
+            <div class='login-help'>
+              This dashboard is access-controlled. Enter the password your CU
+              contact shared with you to continue.
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        submitted = st.form_submit_button("Sign in")
-    st.markdown("</div>", unsafe_allow_html=True)
+        with st.form("login", clear_on_submit=True):
+            pw = st.text_input(
+                "Password",
+                type="password",
+                placeholder="Type the access password here",
+                label_visibility="visible",
+            )
+            submitted = st.form_submit_button("Sign in")
     if submitted:
         if pw == expected:
             st.session_state["auth_ok"] = True
