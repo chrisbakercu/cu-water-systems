@@ -16,7 +16,6 @@ import streamlit as st
 ROOT = Path(__file__).parent
 PARQUET_DIR = ROOT / "data"
 FIPS_FILE = PARQUET_DIR / "national_county2020.txt"
-GEOJSON_FILE = PARQUET_DIR / "us_counties_fips.geojson"
 SMALL_SYSTEM_THRESHOLD = 3300
 LCR_ACTION_LEVEL_PPB = 15
 
@@ -671,27 +670,6 @@ def load_fips_lookup() -> dict[tuple[str, str], tuple[str, str]]:
     return lookup
 
 
-# CU's seven primacy agencies, mapped to their 2-digit state FIPS prefixes.
-CU_STATE_FIPS = {"AL": "01", "AR": "05", "LA": "22", "MS": "28", "OK": "40", "TN": "47", "TX": "48"}
-
-
-@st.cache_data(max_entries=1)
-def load_counties_geojson() -> dict | None:
-    """Load and trim US counties GeoJSON to CU's 7-state footprint only.
-
-    The raw file covers all ~3100 US counties. We use only ~700 of them, so
-    keeping the rest in memory wastes ~80% of this asset.
-    """
-    if not GEOJSON_FILE.exists():
-        return None
-    import json
-    raw = json.loads(GEOJSON_FILE.read_text())
-    keep_fips = set(CU_STATE_FIPS.values())
-    features = [
-        f for f in raw.get("features", [])
-        if f.get("properties", {}).get("STATE") in keep_fips
-    ]
-    return {"type": raw.get("type", "FeatureCollection"), "features": features}
 
 
 def _normalize_county(name: str) -> str:
@@ -910,7 +888,7 @@ lcr = lcr_all[lcr_all["pwsid"].isin(filtered_pwsids)]
 def show_system_dialog(pwsid: str, back_county_fips: str | None = None) -> None:
     if back_county_fips:
         if st.button("← Back to county", key=f"back_county_{back_county_fips}"):
-            st.session_state["reopen_county_fips"] = back_county_fips
+            st.session_state["pending_county_modal"] = back_county_fips
             st.rerun()
     render_system_detail(pwsid, systems_all, violations_all, lcr_all)
 
@@ -1084,6 +1062,11 @@ def _county_rollup(states_key: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFr
 
 geo_exp, by_county = _county_rollup(tuple(selected_states))
 
+# Pending county-modal trigger (e.g. "Back to county" from a system dialog)
+_pending_county = st.session_state.pop("pending_county_modal", None)
+if _pending_county:
+    show_county_dialog(_pending_county, by_county, geo_exp)
+
 
 def trigger_system_modal(pwsid: str, key: str, back_fips: str | None = None) -> None:
     """If pwsid differs from the table's last-picked sentinel, open the system
@@ -1112,7 +1095,6 @@ def trigger_county_modal(fips: str, key: str) -> None:
     tab_scorecard,
     tab_detail,
     tab_watchlist,
-    tab_map,
     tab_lcr,
     tab_violations,
 ) = st.tabs(
@@ -1120,7 +1102,6 @@ def trigger_county_modal(fips: str, key: str) -> None:
         "Scorecard",
         "Find a System",
         "CU Watchlist",
-        "Map",
         "Lead & Copper",
         "Violations",
     ]
@@ -1206,151 +1187,6 @@ with tab_scorecard:
         trigger_county_modal(
             parish_rollup.iloc[rows[0]]["fips5"], "scorecard_parish_last"
         )
-
-
-# --- Map ----------------------------------------------------------------------
-with tab_map:
-    section(
-        "County choropleth",
-        "Hover for county details. Click a county to see every system serving it.",
-    )
-
-    geojson = load_counties_geojson()
-    if geojson is None:
-        st.warning(
-            "Missing `data/us_counties_fips.geojson`. Download with the curl "
-            "command in the README and reload."
-        )
-    else:
-        metric_choice = st.selectbox(
-            "Color by",
-            [
-                "% of CWS with open health-based violation",
-                "Active CWS count",
-                "Active CWS with open health-based violation (count)",
-                "Population served (active CWS)",
-                "Small CWS (<3,300) with open health-based violation",
-            ],
-            index=0,
-        )
-        st.caption(
-            "A water system serving multiple counties is counted in each county it serves. "
-            "Population is the system's reported total, attributed to each served county "
-            "(don't sum across counties for a state total — use the Scorecard tab)."
-        )
-
-        # by_county and geo_exp are pre-computed at module scope.
-        metric_to_col = {
-            "% of CWS with open health-based violation": ("pct_open_health", ".1f", "%"),
-            "Active CWS count": ("systems", ",", ""),
-            "Active CWS with open health-based violation (count)": (
-                "with_open_health", ",", ""
-            ),
-            "Population served (active CWS)": ("pop_served", ",.0f", ""),
-            "Small CWS (<3,300) with open health-based violation": (
-                "small_with_open_health", ",", ""
-            ),
-        }
-        col, fmt, suffix = metric_to_col[metric_choice]
-
-        showing_state_fips = [
-            CU_STATE_FIPS[s] for s in by_county["primacy_agency_code"].unique()
-            if s in CU_STATE_FIPS
-        ]
-        plot_geojson = {
-            "type": "FeatureCollection",
-            "features": [
-                f for f in geojson["features"]
-                if f["properties"].get("STATE") in showing_state_fips
-                or f["id"][:2] in showing_state_fips
-            ],
-        }
-
-        fig = px.choropleth_map(
-            by_county,
-            geojson=plot_geojson,
-            locations="fips5",
-            featureidkey="id",
-            color=col,
-            color_continuous_scale="OrRd"
-            if "open_health" in col or "pct" in col
-            else CU_BLUE_SCALE,
-            map_style="carto-positron",
-            zoom=4.2,
-            center={"lat": 33.0, "lon": -92.0},
-            opacity=0.75,
-            hover_name="county_display",
-            hover_data={
-                "primacy_agency_code": True,
-                "systems": True,
-                "with_open_health": True,
-                "pct_open_health": ":.1f",
-                "pop_served": ":,.0f",
-                "fips5": False,
-                col: ":" + fmt,
-            },
-            labels={
-                "primacy_agency_code": "State",
-                "systems": "Active CWS",
-                "with_open_health": "w/ open health-based viol.",
-                "pct_open_health": "% w/ open health-based viol.",
-                "pop_served": "Population served",
-                col: metric_choice,
-            },
-        )
-        fig.update_layout(
-            height=620,
-            margin=dict(l=0, r=0, t=10, b=0),
-            coloraxis_colorbar=dict(title=metric_choice),
-        )
-
-        map_selection = st.plotly_chart(
-            fig,
-            width="stretch",
-            on_select="rerun",
-            selection_mode=("points",),
-            key="map",
-        )
-
-        # "Back to county" path — user closed system dialog and asked to return.
-        reopen_fips = st.session_state.pop("reopen_county_fips", None)
-        if reopen_fips:
-            show_county_dialog(reopen_fips, by_county, geo_exp)
-        else:
-            # New county click → open county dialog over the map
-            points = (map_selection or {}).get("selection", {}).get("points", [])
-            clicked_fips = points[0].get("location") if points else None
-            if clicked_fips and clicked_fips != st.session_state.get("county_dialog_last"):
-                st.session_state["county_dialog_last"] = clicked_fips
-                show_county_dialog(clicked_fips, by_county, geo_exp)
-
-        with st.expander("County data table"):
-            st.caption("Check the box on any row to open that county.")
-            disp = by_county.sort_values(col, ascending=False).rename(
-                columns={
-                    "fips5": "FIPS",
-                    "county_display": "County / parish",
-                    "primacy_agency_code": "State",
-                    "systems": "Active CWS",
-                    "with_open_health": "w/ open health-based viol.",
-                    "pct_open_health": "% w/ open health-based viol.",
-                    "pop_served": "Population served",
-                    "small_with_open_health": "Small w/ open health-based viol.",
-                }
-            ).reset_index(drop=True)
-            table_selection = st.dataframe(
-                disp,
-                width="stretch",
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                key="county_table_select",
-            )
-            sel_rows = (table_selection or {}).get("selection", {}).get("rows", [])
-            if sel_rows:
-                trigger_county_modal(
-                    disp.iloc[sel_rows[0]]["FIPS"], "county_table_last"
-                )
 
 
 # --- CU Watchlist -------------------------------------------------------------
