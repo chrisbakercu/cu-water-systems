@@ -955,11 +955,11 @@ search_pool = (
     .sort_values("pws_name")
 )
 search_pool["label"] = (
-    search_pool["pws_name"]
+    search_pool["pws_name"].astype(str)
     + " — "
-    + search_pool["pwsid"]
+    + search_pool["pwsid"].astype(str)
     + " ("
-    + search_pool["primacy_agency_code"].fillna("")
+    + search_pool["primacy_agency_code"].astype(str).fillna("")
     + ")"
 )
 search_options = search_pool["pwsid"].tolist()
