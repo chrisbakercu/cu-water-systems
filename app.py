@@ -198,17 +198,105 @@ def _password_gate() -> None:
         return  # No password configured — local / open access
     if st.session_state.get("auth_ok"):
         return
-    st.title("CU Water Systems")
-    st.caption("Enter the access password to continue.")
+
+    # Self-contained styling — main brand CSS hasn't run yet at this point.
+    st.markdown(
+        """
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+          html, body, .stApp { font-family: 'Poppins', system-ui, sans-serif !important; background: #f7f9fc !important; }
+          [data-testid="stHeader"], #MainMenu, footer { visibility: hidden; }
+          .block-container { padding-top: 4rem !important; max-width: 480px !important; }
+          .login-card {
+            background: #ffffff;
+            border: 1px solid #e5eaf2;
+            border-radius: 12px;
+            padding: 2rem 2.25rem 1.5rem 2.25rem;
+            box-shadow: 0 6px 24px rgba(8, 94, 170, 0.08);
+          }
+          .login-eyebrow {
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.16em;
+            color: #0088ce;
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+          }
+          .login-title {
+            font-family: 'Poppins', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #085eaa;
+            margin-bottom: 0.35rem;
+          }
+          .login-help {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-bottom: 1.25rem;
+          }
+          /* Big, obvious password input */
+          .stTextInput input {
+            font-family: 'Poppins', sans-serif !important;
+            font-size: 1.05rem !important;
+            padding: 0.85rem 1rem !important;
+            border-radius: 8px !important;
+            border: 1.5px solid #d8e2ee !important;
+            background: #f7f9fc !important;
+          }
+          .stTextInput input:focus {
+            border-color: #085eaa !important;
+            background: #ffffff !important;
+            box-shadow: 0 0 0 3px rgba(8, 94, 170, 0.12) !important;
+          }
+          .stTextInput label {
+            font-family: 'Poppins', sans-serif !important;
+            font-size: 0.75rem !important;
+            font-weight: 600 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.08em !important;
+            color: #085eaa !important;
+          }
+          .stFormSubmitButton button {
+            font-family: 'Poppins', sans-serif !important;
+            background: #085eaa !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 1.25rem !important;
+            font-size: 1rem !important;
+            font-weight: 500 !important;
+            width: 100% !important;
+            margin-top: 0.5rem !important;
+          }
+          .stFormSubmitButton button:hover {
+            background: #0088ce !important;
+          }
+        </style>
+        <div class='login-card'>
+          <div class='login-eyebrow'>Communities Unlimited</div>
+          <div class='login-title'>Water Systems</div>
+          <div class='login-help'>
+            This dashboard is access-controlled. Enter the password your CU
+            contact shared with you to continue.
+          </div>
+        """,
+        unsafe_allow_html=True,
+    )
     with st.form("login", clear_on_submit=True):
-        pw = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Enter")
+        pw = st.text_input(
+            "Password",
+            type="password",
+            placeholder="Type the access password here",
+            label_visibility="visible",
+        )
+        submitted = st.form_submit_button("Sign in")
+    st.markdown("</div>", unsafe_allow_html=True)
     if submitted:
         if pw == expected:
             st.session_state["auth_ok"] = True
             st.rerun()
         else:
-            st.error("Incorrect password.")
+            st.error("That password didn't match. Try again.")
     st.stop()
 
 
