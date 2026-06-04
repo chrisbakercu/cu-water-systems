@@ -1452,9 +1452,9 @@ with tab_detail:
                 format_func=lambda p: pws_list.set_index("pwsid").loc[p, "label"],
                 key="find_system_picker",
             )
-        if choice:
+        if choice and st.session_state.get("find_system_last") != choice:
+            st.session_state["find_system_last"] = choice
             show_system_dialog(choice)
-            st.session_state["find_system_picker"] = None
 
 
 # --- Lead & Copper ------------------------------------------------------------
