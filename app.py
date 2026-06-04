@@ -67,6 +67,30 @@ px.defaults.color_continuous_scale = CU_BLUE_SCALE
 px.defaults.template = "plotly_white"
 
 
+def _safe_str(value) -> str:
+    """Coerce a pandas-row cell to a plain str, treating NaN/None as empty."""
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def _safe_int(value) -> int:
+    try:
+        if value is None or pd.isna(value):
+            return 0
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     """Render the full system detail block — used by Find a System tab + modal."""
     matches = systems_df[systems_df["pwsid"] == pwsid]
@@ -76,18 +100,18 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     row = matches.iloc[0]
 
     st.markdown(
-        f"### {row['pws_name']}  \n"
+        f"### {_safe_str(row['pws_name'])}  \n"
         f"<span style='color:#888b8d;font-size:0.9rem;'>"
-        f"{row['pwsid']} · {row.get('city_name', '')}, "
-        f"{row.get('state_code', '')}</span>",
+        f"{_safe_str(row['pwsid'])} · {_safe_str(row.get('city_name', ''))}, "
+        f"{_safe_str(row.get('state_code', ''))}</span>",
         unsafe_allow_html=True,
     )
 
-    admin = row.get("admin_name") or "—"
-    org = row.get("org_name") or "—"
-    email = row.get("email_addr") or ""
-    phone = row.get("phone_number") or ""
-    alt_phone = row.get("alt_phone_number") or ""
+    admin = _safe_str(row.get("admin_name")) or "—"
+    org = _safe_str(row.get("org_name")) or "—"
+    email = _safe_str(row.get("email_addr"))
+    phone = _safe_str(row.get("phone_number"))
+    alt_phone = _safe_str(row.get("alt_phone_number"))
 
     email_html = (
         f"<a href='mailto:{email}' style='color:#085eaa;text-decoration:none;'>{email}</a>"
@@ -125,22 +149,27 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
         unsafe_allow_html=True,
     )
 
-    addr = (row.get("address_line1") or "").strip()
-    addr_full = (f"{addr}  \n" if addr else "") + (
-        f"{row.get('city_name', '')}, {row.get('state_code', '')} {row.get('zip_code', '')}"
-    )
+    addr = _safe_str(row.get("address_line1")).strip()
+    city = _safe_str(row.get("city_name"))
+    state_code = _safe_str(row.get("state_code"))
+    zip_code = _safe_str(row.get("zip_code"))
+    addr_full = (f"{addr}  \n" if addr else "") + f"{city}, {state_code} {zip_code}"
     st.markdown("**Mailing address**")
     st.write(addr_full)
 
+    pws_type = _safe_str(row.get("pws_type_code"))
+    src_code = _safe_str(row.get("primary_source_code"))
+    own_code = _safe_str(row.get("owner_type_code"))
+
     c1, c2, c3 = st.columns(3)
-    c1.metric("Population served", f"{int(row['population_served_count'] or 0):,}")
-    c2.metric("Connections", f"{int(row['service_connections_count'] or 0):,}")
-    c3.metric("System type", TYPE_LABELS.get(row["pws_type_code"], row["pws_type_code"]))
+    c1.metric("Population served", f"{_safe_int(row.get('population_served_count')):,}")
+    c2.metric("Connections", f"{_safe_int(row.get('service_connections_count')):,}")
+    c3.metric("System type", TYPE_LABELS.get(pws_type, pws_type or "—"))
 
     c4, c5, c6 = st.columns(3)
-    c4.metric("Source", SOURCE_LABELS.get(row["primary_source_code"], row["primary_source_code"]))
-    c5.metric("Owner", OWNER_TYPE_LABELS.get(row["owner_type_code"], row["owner_type_code"]))
-    c6.metric("Status", "Active" if row["pws_activity_code"] == "A" else "Inactive")
+    c4.metric("Source", SOURCE_LABELS.get(src_code, src_code or "—"))
+    c5.metric("Owner", OWNER_TYPE_LABELS.get(own_code, own_code or "—"))
+    c6.metric("Status", "Active" if _safe_str(row.get("pws_activity_code")) == "A" else "Inactive")
 
     st.markdown("**Violation history**")
     v = violations_df[violations_df["pwsid"] == pwsid].copy()
