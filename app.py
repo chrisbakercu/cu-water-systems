@@ -66,6 +66,127 @@ px.defaults.color_discrete_sequence = CU_QUALITATIVE
 px.defaults.color_continuous_scale = CU_BLUE_SCALE
 px.defaults.template = "plotly_white"
 
+
+def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
+    """Render the full system detail block — used by Find a System tab + modal."""
+    matches = systems_df[systems_df["pwsid"] == pwsid]
+    if matches.empty:
+        st.warning(f"No record found for {pwsid}.")
+        return
+    row = matches.iloc[0]
+
+    st.markdown(
+        f"### {row['pws_name']}  \n"
+        f"<span style='color:#888b8d;font-size:0.9rem;'>"
+        f"{row['pwsid']} · {row.get('city_name', '')}, "
+        f"{row.get('state_code', '')}</span>",
+        unsafe_allow_html=True,
+    )
+
+    admin = row.get("admin_name") or "—"
+    org = row.get("org_name") or "—"
+    email = row.get("email_addr") or ""
+    phone = row.get("phone_number") or ""
+    alt_phone = row.get("alt_phone_number") or ""
+
+    email_html = (
+        f"<a href='mailto:{email}' style='color:#085eaa;text-decoration:none;'>{email}</a>"
+        if email and email != "—"
+        else "<span style='color:#888b8d;'>Not on file</span>"
+    )
+    phone_html = (
+        f"<a href='tel:{phone}' style='color:#085eaa;text-decoration:none;'>{phone}</a>"
+        if phone and phone != "—"
+        else "<span style='color:#888b8d;'>Not on file</span>"
+    )
+    alt_phone_html = (
+        f" · <span style='color:#888b8d;'>alt</span> "
+        f"<a href='tel:{alt_phone}' style='color:#085eaa;text-decoration:none;'>{alt_phone}</a>"
+        if alt_phone else ""
+    )
+
+    st.markdown(
+        f"""
+        <div style='background:#ffffff;border:1px solid #d8e2ee;border-left:4px solid #085eaa;
+            border-radius:8px;padding:1.25rem 1.5rem;margin:0.5rem 0 1.25rem 0;
+            box-shadow:0 1px 2px rgba(8,94,170,0.05);'>
+          <div style='font-size:0.75rem;font-weight:600;letter-spacing:0.08em;
+              color:#888b8d;text-transform:uppercase;margin-bottom:0.5rem;'>Operator contact</div>
+          <div style='font-size:1.15rem;font-weight:600;color:#1f2933;'>{admin}</div>
+          <div style='color:#888b8d;margin-bottom:0.85rem;'>{org}</div>
+          <div style='display:flex;flex-wrap:wrap;gap:1.5rem;font-size:0.95rem;'>
+            <div><div style='color:#888b8d;font-size:0.8rem;'>Email</div><div>{email_html}</div></div>
+            <div><div style='color:#888b8d;font-size:0.8rem;'>Phone</div><div>{phone_html}{alt_phone_html}</div></div>
+          </div>
+          <div style='margin-top:0.85rem;padding-top:0.75rem;border-top:1px solid #f0f2f5;
+              font-size:0.75rem;color:#888b8d;'>PII — handle per CU confidentiality rules.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    addr = (row.get("address_line1") or "").strip()
+    addr_full = (f"{addr}  \n" if addr else "") + (
+        f"{row.get('city_name', '')}, {row.get('state_code', '')} {row.get('zip_code', '')}"
+    )
+    st.markdown("**Mailing address**")
+    st.write(addr_full)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Population served", f"{int(row['population_served_count'] or 0):,}")
+    c2.metric("Connections", f"{int(row['service_connections_count'] or 0):,}")
+    c3.metric("System type", TYPE_LABELS.get(row["pws_type_code"], row["pws_type_code"]))
+
+    c4, c5, c6 = st.columns(3)
+    c4.metric("Source", SOURCE_LABELS.get(row["primary_source_code"], row["primary_source_code"]))
+    c5.metric("Owner", OWNER_TYPE_LABELS.get(row["owner_type_code"], row["owner_type_code"]))
+    c6.metric("Status", "Active" if row["pws_activity_code"] == "A" else "Inactive")
+
+    st.markdown("**Violation history**")
+    v = violations_df[violations_df["pwsid"] == pwsid].copy()
+    if v.empty:
+        st.info("No violations in the federal feed.")
+    else:
+        v["status"] = v["rtc_date"].apply(
+            lambda d: "Returned to compliance" if pd.notna(d) else "Open"
+        )
+        v_display = v[[
+            "compl_per_begin_date", "violation_code", "violation_category_code",
+            "is_health_based_ind", "contaminant_code", "status", "rtc_date",
+        ]].sort_values("compl_per_begin_date", ascending=False)
+        v_display.columns = ["Begin", "Code", "Category", "Health-based",
+                             "Contaminant", "Status", "RTC date"]
+        st.dataframe(v_display, width="stretch", hide_index=True)
+
+    st.markdown("**Lead & copper samples**")
+    l = lcr_df[lcr_df["pwsid"] == pwsid]
+    if l.empty:
+        st.info("No LCR samples in the federal feed.")
+    else:
+        st.dataframe(
+            l[["sample_id", "sampling_start_date", "sampling_end_date"]],
+            width="stretch",
+            hide_index=True,
+        )
+
+
+def section(title: str, subtitle: str | None = None) -> None:
+    """Consistent section heading: H3 in brand color + optional muted subtitle."""
+    st.markdown(
+        f"""
+        <div style='margin: 0.75rem 0 0.5rem 0;'>
+          <div style='
+              font-size:1.05rem;
+              font-weight:600;
+              color:#085eaa;
+              letter-spacing:-0.005em;
+          '>{title}</div>
+          {f"<div style='color:#6b7280;font-size:0.85rem;margin-top:0.15rem;'>{subtitle}</div>" if subtitle else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # --- Password gate (only enforced when secrets define a password) -----------
 def _password_gate() -> None:
     expected = ""
@@ -98,6 +219,7 @@ st.markdown(
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
 
+      /* ---------- Typography ---------- */
       html, body, .stApp,
       .stMarkdown, .stMetric, .stDataFrame, .stSelectbox, .stMultiSelect,
       .stRadio, .stCheckbox, .stButton button, h1, h2, h3, h4, h5, h6,
@@ -107,30 +229,215 @@ st.markdown(
       [data-baseweb="tab"], [data-testid="stSidebar"] * {
         font-family: 'Poppins', system-ui, sans-serif !important;
       }
-
-      /* Keep Material Symbols glyphs rendering as icons, not text */
+      /* Preserve Material Symbols icon glyphs */
       [class*="material-symbols"], [class*="material-icons"],
       .material-symbols-outlined, .material-symbols-rounded,
-      .material-icons, span[role="img"][class*="icon"] {
+      .material-icons, span[role="img"][class*="icon"],
+      [data-baseweb="icon"], [data-baseweb="icon"] *,
+      [data-testid="stIcon"], [data-testid="stIcon"] *,
+      [data-testid="stIconMaterial"], [data-testid="stIconMaterial"] *,
+      [data-testid="stExpanderIcon"], [data-testid="stExpanderIcon"] *,
+      span[translate="no"] {
         font-family: 'Material Symbols Outlined', 'Material Symbols Rounded',
                      'Material Icons' !important;
       }
-
+      body, .stApp { color: #1f2933; }
       h1, h2, h3 { color: #085eaa; font-weight: 600; letter-spacing: -0.01em; }
+      h2 { font-size: 1.35rem; margin-top: 0.5rem; }
+      h3 { font-size: 1.1rem; }
+      [data-testid="stCaptionContainer"], .stCaption { color: #6b7280 !important; }
+      hr { border-color: #e5eaf2 !important; }
 
-      /* Tabs: brand the active tab underline */
-      .stTabs [aria-selected="true"] { color: #085eaa !important; }
-      .stTabs [data-baseweb="tab-highlight"] { background-color: #085eaa !important; }
+      /* ---------- App container ---------- */
+      .stApp { background: #f7f9fc; }
+      .block-container { padding-top: 1.5rem; padding-bottom: 3rem; max-width: 1400px; }
+      /* Hide Streamlit's hamburger menu + footer for a cleaner internal-app
+         look. Keep the toolbar visible — it hosts the sidebar expand button. */
+      #MainMenu, footer { visibility: hidden; }
+      [data-testid="stToolbar"] [data-testid="stMainMenu"] { display: none; }
 
-      /* Metric value emphasis */
+      /* Make the sidebar expand/collapse arrow obviously a button */
+      [data-testid="stHeader"] button,
+      [data-testid="stSidebarHeader"] button {
+        background: #eaf2fa !important;
+        border: 1px solid #d8e2ee !important;
+        border-radius: 8px !important;
+        width: 36px !important;
+        height: 36px !important;
+        color: #085eaa !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        transition: background 0.15s, border-color 0.15s !important;
+      }
+      [data-testid="stHeader"] button:hover,
+      [data-testid="stSidebarHeader"] button:hover {
+        background: #085eaa !important;
+        border-color: #085eaa !important;
+        color: #ffffff !important;
+      }
+      [data-testid="stHeader"] button [data-testid="stIconMaterial"],
+      [data-testid="stSidebarHeader"] button [data-testid="stIconMaterial"] {
+        font-size: 20px !important;
+        color: inherit !important;
+      }
+
+      /* ---------- Tabs (pill-style) ---------- */
+      .stTabs [data-baseweb="tab-list"] {
+        gap: 0.25rem;
+        background: transparent;
+        border-bottom: 1px solid #e5eaf2;
+        padding-bottom: 0.25rem;
+        margin-bottom: 1rem;
+      }
+      .stTabs [data-baseweb="tab"] {
+        padding: 0.55rem 1rem !important;
+        background: transparent;
+        border-radius: 6px 6px 0 0;
+        color: #52606d;
+        font-weight: 500;
+        transition: color 0.15s, background 0.15s;
+      }
+      .stTabs [data-baseweb="tab"]:hover { color: #085eaa; background: #eef3f9; }
+      .stTabs [aria-selected="true"] {
+        color: #085eaa !important;
+        font-weight: 600;
+        background: transparent;
+      }
+      .stTabs [data-baseweb="tab-highlight"] {
+        background-color: #085eaa !important;
+        height: 3px;
+        border-radius: 2px;
+      }
+
+      /* ---------- Metric tiles as cards ---------- */
+      [data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #e5eaf2;
+        border-radius: 10px;
+        padding: 1rem 1.15rem;
+        box-shadow: 0 1px 2px rgba(8,94,170,0.04);
+        transition: box-shadow 0.15s, border-color 0.15s;
+      }
+      [data-testid="stMetric"]:hover {
+        box-shadow: 0 4px 12px rgba(8,94,170,0.08);
+        border-color: #d8e2ee;
+      }
+      [data-testid="stMetricLabel"] {
+        color: #6b7280 !important;
+        font-size: 0.75rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
       [data-testid="stMetricValue"] {
         color: #085eaa;
         font-weight: 600;
+        font-size: 1.65rem !important;
+        line-height: 1.1;
+      }
+      [data-testid="stMetricDelta"] { font-size: 0.8rem !important; }
+
+      /* ---------- Sidebar ---------- */
+      [data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid #e5eaf2;
+      }
+      [data-testid="stSidebar"] > div { padding-top: 1.25rem; }
+      [data-testid="stSidebar"] h2,
+      [data-testid="stSidebar"] h3 {
+        color: #085eaa;
+        font-size: 0.75rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.5rem;
+      }
+      [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        color: #888b8d !important;
+        font-size: 0.78rem !important;
+      }
+      [data-testid="stSidebar"] hr { margin: 1.25rem 0; }
+
+      /* ---------- Inputs (selectbox, multiselect, text) ---------- */
+      [data-baseweb="select"] > div, [data-baseweb="input"] > div {
+        border-radius: 8px !important;
+        border-color: #d8e2ee !important;
+      }
+      [data-baseweb="select"]:hover > div, [data-baseweb="input"]:hover > div {
+        border-color: #0088ce !important;
+      }
+      [data-baseweb="tag"] {
+        background: #eaf2fa !important;
+        color: #085eaa !important;
+        border-radius: 6px !important;
       }
 
-      /* Sidebar accent */
-      [data-testid="stSidebar"] h2,
-      [data-testid="stSidebar"] h3 { color: #085eaa; }
+      /* ---------- Buttons ---------- */
+      .stButton button, .stFormSubmitButton button {
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+        padding: 0.45rem 1rem !important;
+        border: 1px solid #d8e2ee !important;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .stButton button[kind="primary"], .stFormSubmitButton button {
+        background: #085eaa !important;
+        color: white !important;
+        border-color: #085eaa !important;
+      }
+      .stButton button[kind="primary"]:hover, .stFormSubmitButton button:hover {
+        background: #0088ce !important;
+        border-color: #0088ce !important;
+      }
+
+      /* ---------- Bordered containers (cards) ---------- */
+      [data-testid="stVerticalBlockBorderWrapper"] {
+        border-color: #e5eaf2 !important;
+        border-radius: 10px !important;
+        background: #ffffff;
+        box-shadow: 0 1px 2px rgba(8,94,170,0.04);
+      }
+
+      /* ---------- Expanders ---------- */
+      [data-testid="stExpander"] {
+        border: 1px solid #e5eaf2 !important;
+        border-radius: 8px !important;
+        background: #ffffff;
+      }
+      [data-testid="stExpander"] summary { font-weight: 500; }
+
+      /* ---------- DataFrames / tables ---------- */
+      .stDataFrame { border-radius: 8px; overflow: hidden; }
+      .stDataFrame [data-testid="StyledDataFrameRowHeader"],
+      .stDataFrame thead tr th {
+        background: #eef3f9 !important;
+        color: #085eaa !important;
+        font-weight: 600 !important;
+        border-bottom: 1px solid #d8e2ee !important;
+      }
+      .stDataFrame tbody tr:hover { background: #f7f9fc !important; }
+
+      /* ---------- Plotly chart containers ---------- */
+      [data-testid="stPlotlyChart"] {
+        background: #ffffff;
+        border: 1px solid #e5eaf2;
+        border-radius: 10px;
+        padding: 0;
+        box-shadow: 0 1px 2px rgba(8,94,170,0.04);
+        overflow: hidden;
+      }
+      [data-testid="stPlotlyChart"] > div { padding: 0.5rem; }
+      /* Streamlit wraps every element in a container with overflow:auto by
+         default; that draws a scrollbar whenever our card adds any padding.
+         Suppress it — we never need per-element scrolling. */
+      [data-testid="stElementContainer"] { overflow: visible !important; }
+      [data-testid="stFullScreenFrame"] { overflow: visible !important; }
+
+      /* ---------- Alerts (info / warning / success) ---------- */
+      [data-testid="stAlert"] {
+        border-radius: 8px !important;
+        border: 1px solid #e5eaf2 !important;
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -269,8 +576,6 @@ def label(series: pd.Series, mapping: dict[str, str]) -> pd.Series:
 # Header + data source selection
 # ---------------------------------------------------------------------------
 
-st.title("CU Water Systems")
-
 available = _available_states()
 
 if not available:
@@ -282,9 +587,18 @@ if not available:
 
 with st.sidebar:
     st.header("States")
-    selected_states = st.multiselect(
-        "Include", available, default=available,
-    )
+    for s in available:
+        st.session_state.setdefault(f"state_{s}", True)
+    selected_states = [s for s in available if st.checkbox(s, key=f"state_{s}")]
+    all_on = len(selected_states) == len(available)
+    if st.button(
+        "Clear all" if all_on else "Select all",
+        width="stretch",
+    ):
+        new_value = not all_on
+        for s in available:
+            st.session_state[f"state_{s}"] = new_value
+        st.rerun()
     if not selected_states:
         st.warning("Pick at least one state.")
         st.stop()
@@ -304,8 +618,70 @@ violations_all = data["violations"]
 lcr_all = data["lcr"]
 geo_all = data["geo"]
 
-st.caption(
-    f"{source_label} · Federal feed may lag state viewers by ~1 quarter."
+# --- App header band --------------------------------------------------------
+pull_short = (pulled[-1].split("T")[0] if pulled and pulled[-1] else "—")
+state_chip = ", ".join(selected_states) if len(selected_states) <= 4 else (
+    f"{len(selected_states)} states"
+)
+st.markdown(
+    f"""
+    <div style='
+        display:flex;
+        align-items:flex-end;
+        justify-content:space-between;
+        padding:0.25rem 0 1rem 0;
+        border-bottom:1px solid #e5eaf2;
+        margin-bottom:1.25rem;
+    '>
+      <div>
+        <div style='
+            font-size:0.72rem;
+            font-weight:600;
+            letter-spacing:0.14em;
+            color:#0088ce;
+            text-transform:uppercase;
+            margin-bottom:0.15rem;
+        '>Communities Unlimited</div>
+        <div style='
+            font-size:1.75rem;
+            font-weight:600;
+            color:#085eaa;
+            line-height:1.1;
+        '>Water Systems</div>
+      </div>
+      <div style='display:flex;gap:0.6rem;align-items:center;'>
+        <span style='
+            background:#ffffff;
+            border:1px solid #d8e2ee;
+            color:#1f2933;
+            padding:0.35rem 0.7rem;
+            border-radius:999px;
+            font-size:0.78rem;
+        '>
+          <span style='color:#888b8d;'>States</span>
+          &nbsp;<span style='font-weight:600;'>{state_chip}</span>
+        </span>
+        <span style='
+            background:#ffffff;
+            border:1px solid #d8e2ee;
+            color:#1f2933;
+            padding:0.35rem 0.7rem;
+            border-radius:999px;
+            font-size:0.78rem;
+        '>
+          <span style='color:#888b8d;'>Last pull</span>
+          &nbsp;<span style='font-weight:600;'>{pull_short}</span>
+        </span>
+      </div>
+    </div>
+    <div style='
+        color:#888b8d;
+        font-size:0.82rem;
+        margin-top:-0.5rem;
+        margin-bottom:0.75rem;
+    '>EPA Envirofacts SDWIS · Federal feed may lag state viewers by ~1 quarter.</div>
+    """,
+    unsafe_allow_html=True,
 )
 
 with st.sidebar:
@@ -338,19 +714,214 @@ lcr = lcr_all[lcr_all["pwsid"].isin(filtered_pwsids)]
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
+# Modal + global search
+# ---------------------------------------------------------------------------
+@st.dialog("System detail", width="large")
+def show_system_dialog(pwsid: str, back_county_fips: str | None = None) -> None:
+    if back_county_fips:
+        if st.button("← Back to county", key=f"back_county_{back_county_fips}"):
+            st.session_state["reopen_county_fips"] = back_county_fips
+            st.rerun()
+    render_system_detail(pwsid, systems_all, violations_all, lcr_all)
+
+
+@st.dialog("County summary", width="large")
+def show_county_dialog(fips: str, by_county_df, geo_exp_df) -> None:
+    county_row = by_county_df[by_county_df["fips5"] == fips]
+    if county_row.empty:
+        st.info("Selected county has no matched data.")
+        return
+    cr = county_row.iloc[0]
+
+    st.markdown(
+        f"### {cr['county_display']}, {cr['primacy_agency_code']}"
+    )
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Active CWS", f"{int(cr['systems']):,}")
+    c2.metric(
+        "With open health-based viol.",
+        f"{int(cr['with_open_health']):,}",
+        delta=f"{cr['pct_open_health']:.1f}%",
+        delta_color="inverse",
+    )
+    c3.metric("Population served", f"{int(cr['pop_served']):,}")
+
+    county_pwsids = geo_exp_df[geo_exp_df["fips5"] == fips]["pwsid"].unique()
+    county_systems = active_cws(
+        systems_all[systems_all["pwsid"].isin(county_pwsids)].copy()
+    )
+
+    viol_counts = (
+        violations_all[
+            (violations_all["pwsid"].isin(county_pwsids))
+            & (violations_all["rtc_date"].isna())
+            & (violations_all["is_health_based_ind"] == "Y")
+        ]
+        .groupby("pwsid").size().rename("open_health_violations")
+    )
+    county_systems = county_systems.merge(
+        viol_counts, left_on="pwsid", right_index=True, how="left"
+    )
+    county_systems["open_health_violations"] = (
+        county_systems["open_health_violations"].fillna(0).astype(int)
+    )
+
+    table = county_systems.sort_values(
+        ["open_health_violations", "population_served_count"],
+        ascending=[False, False],
+    )[
+        [
+            "pwsid",
+            "pws_name",
+            "city_name",
+            "population_served_count",
+            "service_connections_count",
+            "open_health_violations",
+        ]
+    ].rename(
+        columns={
+            "pwsid": "PWSID",
+            "pws_name": "System",
+            "city_name": "City",
+            "population_served_count": "Population",
+            "service_connections_count": "Connections",
+            "open_health_violations": "Open viols.",
+        }
+    )
+
+    st.markdown(
+        "<div style='font-size:0.85rem;color:#888b8d;margin:0.5rem 0 0.25rem 0;'>"
+        "Click any row to open the system detail.</div>",
+        unsafe_allow_html=True,
+    )
+    selection = st.dataframe(
+        table,
+        width="stretch",
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=f"county_dialog_table_{fips}",
+    )
+    rows = (selection or {}).get("selection", {}).get("rows", [])
+    if rows:
+        chosen_pws = table.iloc[rows[0]]["PWSID"]
+        st.session_state["open_system_modal"] = chosen_pws
+        st.session_state["system_modal_back"] = fips
+        st.rerun()
+
+
+# Global search: type system name or PWSID from any tab to open the modal.
+search_pool = (
+    systems_all[["pwsid", "pws_name", "primacy_agency_code", "city_name"]]
+    .dropna(subset=["pwsid", "pws_name"])
+    .drop_duplicates("pwsid")
+    .sort_values("pws_name")
+)
+search_pool["label"] = (
+    search_pool["pws_name"]
+    + " — "
+    + search_pool["pwsid"]
+    + " ("
+    + search_pool["primacy_agency_code"].fillna("")
+    + ")"
+)
+search_options = search_pool["pwsid"].tolist()
+search_index = {p: l for p, l in zip(search_options, search_pool["label"])}
+
+with st.container(border=True):
+    st.markdown(
+        "<div style='font-size:0.75rem;font-weight:600;letter-spacing:0.08em;"
+        "color:#085eaa;text-transform:uppercase;margin-bottom:0.35rem;'>"
+        "Find a system</div>",
+        unsafe_allow_html=True,
+    )
+    picked = st.selectbox(
+        "Search by system name or PWSID",
+        options=search_options,
+        index=None,
+        placeholder="Type a system name or PWSID…",
+        format_func=lambda p: search_index.get(p, p),
+        label_visibility="collapsed",
+        key="global_search",
+    )
+    if picked:
+        show_system_dialog(picked)
+        st.session_state["global_search"] = None
+
+# Pending modal trigger from Map drill-down or other panels
+pending = st.session_state.pop("open_system_modal", None)
+back_fips = st.session_state.pop("system_modal_back", None)
+if pending:
+    show_system_dialog(pending, back_county_fips=back_fips)
+
+# ---------------------------------------------------------------------------
+# Pre-compute county-level aggregates so every tab can drive the county dialog
+# ---------------------------------------------------------------------------
+geo_exp = explode_geo_to_counties(geo_all)
+_active_pop = active_cws(systems_all)[["pwsid", "population_served_count"]]
+_attr = geo_exp.merge(_active_pop, on="pwsid", how="inner")
+_open_health_pwsids = set(
+    violations_all[
+        (violations_all["rtc_date"].isna())
+        & (violations_all["is_health_based_ind"] == "Y")
+    ]["pwsid"]
+)
+_attr["has_open_health"] = _attr["pwsid"].isin(_open_health_pwsids).astype(int)
+_attr["is_small"] = (
+    _attr["population_served_count"] < SMALL_SYSTEM_THRESHOLD
+).astype(int)
+by_county = _attr.groupby(
+    ["fips5", "county_display", "primacy_agency_code"], as_index=False
+).agg(
+    systems=("pwsid", "nunique"),
+    pop_served=("population_served_count", "sum"),
+    with_open_health=("has_open_health", "sum"),
+    small_with_open_health=(
+        "has_open_health",
+        lambda s: int(((s == 1) & (_attr.loc[s.index, "is_small"] == 1)).sum()),
+    ),
+)
+by_county["pct_open_health"] = (
+    100 * by_county["with_open_health"] / by_county["systems"].clip(lower=1)
+)
+
+
+def trigger_system_modal(pwsid: str, key: str, back_fips: str | None = None) -> None:
+    """If pwsid differs from the table's last-picked sentinel, open the system
+    dialog. Used by selectable system tables across tabs."""
+    if not pwsid:
+        return
+    if st.session_state.get(key) == pwsid:
+        return
+    st.session_state[key] = pwsid
+    st.session_state["open_system_modal"] = pwsid
+    if back_fips:
+        st.session_state["system_modal_back"] = back_fips
+    st.rerun()
+
+
+def trigger_county_modal(fips: str, key: str) -> None:
+    if not fips:
+        return
+    if st.session_state.get(key) == fips:
+        return
+    st.session_state[key] = fips
+    show_county_dialog(fips, by_county, geo_exp)
+
+
 (
     tab_scorecard,
-    tab_map,
-    tab_watchlist,
     tab_detail,
+    tab_watchlist,
+    tab_map,
     tab_lcr,
     tab_violations,
 ) = st.tabs(
     [
         "Scorecard",
-        "Map",
+        "Find a System",
         "CU Watchlist",
-        "System Detail",
+        "Map",
         "Lead & Copper",
         "Violations",
     ]
@@ -358,7 +929,10 @@ lcr = lcr_all[lcr_all["pwsid"].isin(filtered_pwsids)]
 
 # --- Scorecard ----------------------------------------------------------------
 with tab_scorecard:
-    st.subheader("State scorecard")
+    section(
+        "State scorecard",
+        "System counts, population reach, and where compliance is slipping.",
+    )
     pop = int(systems["population_served_count"].fillna(0).sum())
     small_count = (systems["population_served_count"] < SMALL_SYSTEM_THRESHOLD).sum()
     open_v = open_violations(violations)
@@ -381,42 +955,66 @@ with tab_scorecard:
     )
 
     st.divider()
-    col_left, col_right = st.columns(2)
+    section("Systems by source water")
+    src = systems.assign(source=label(systems["primary_source_code"], SOURCE_LABELS))
+    src_counts = src["source"].value_counts().reset_index()
+    src_counts.columns = ["Source", "Systems"]
+    fig = px.bar(src_counts, x="Source", y="Systems")
+    fig.update_layout(height=480, margin=dict(l=0, r=0, t=10, b=0))
+    st.plotly_chart(fig, width="stretch")
 
-    with col_left:
-        st.markdown("**Systems by source water**")
-        src = systems.assign(source=label(systems["primary_source_code"], SOURCE_LABELS))
-        src_counts = src["source"].value_counts().reset_index()
-        src_counts.columns = ["Source", "Systems"]
-        fig = px.bar(src_counts, x="Source", y="Systems")
-        fig.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0))
-        st.plotly_chart(fig, width="stretch")
+    section("Systems by owner type")
+    own = systems.assign(owner=label(systems["owner_type_code"], OWNER_TYPE_LABELS))
+    own_counts = own["owner"].value_counts().reset_index()
+    own_counts.columns = ["Owner type", "Systems"]
+    fig = px.bar(own_counts, x="Owner type", y="Systems")
+    fig.update_layout(height=480, margin=dict(l=0, r=0, t=10, b=0))
+    st.plotly_chart(fig, width="stretch")
 
-    with col_right:
-        st.markdown("**Systems by owner type**")
-        own = systems.assign(owner=label(systems["owner_type_code"], OWNER_TYPE_LABELS))
-        own_counts = own["owner"].value_counts().reset_index()
-        own_counts.columns = ["Owner type", "Systems"]
-        fig = px.bar(own_counts, x="Owner type", y="Systems")
-        fig.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0))
-        st.plotly_chart(fig, width="stretch")
-
-    st.markdown("**Top parishes by system count**")
+    section(
+        "Top counties & parishes",
+        "By active community water system count. Check a row to open the county.",
+    )
     parish_rollup = (
-        geo_all[geo_all["pwsid"].isin(filtered_pwsids)]
-        .groupby("county_served")
-        .agg(systems=("pwsid", "nunique"))
+        by_county[by_county["primacy_agency_code"].isin(selected_states)]
         .sort_values("systems", ascending=False)
         .head(15)
-        .reset_index()
-        .rename(columns={"county_served": "Parish", "systems": "Systems"})
+        .reset_index(drop=True)[
+            ["county_display", "primacy_agency_code", "systems",
+             "with_open_health", "pct_open_health", "fips5"]
+        ]
+        .rename(
+            columns={
+                "county_display": "County / parish",
+                "primacy_agency_code": "State",
+                "systems": "Systems",
+                "with_open_health": "Open health-based",
+                "pct_open_health": "% open health-based",
+            }
+        )
     )
-    st.dataframe(parish_rollup, width="stretch", hide_index=True)
+    sel_parish = st.dataframe(
+        parish_rollup,
+        width="stretch",
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        column_order=[c for c in parish_rollup.columns if c != "fips5"],
+        key="scorecard_parish_table",
+    )
+    rows = (sel_parish or {}).get("selection", {}).get("rows", [])
+    if rows:
+        trigger_county_modal(
+            parish_rollup.iloc[rows[0]]["fips5"], "scorecard_parish_last"
+        )
 
 
 # --- Map ----------------------------------------------------------------------
 with tab_map:
-    st.subheader("County choropleth")
+    section(
+        "County choropleth",
+        "Hover for county details. Click a county to see every system serving it.",
+    )
 
     geojson = load_counties_geojson()
     if geojson is None:
@@ -442,39 +1040,7 @@ with tab_map:
             "(don't sum across counties for a state total — use the Scorecard tab)."
         )
 
-        # Build per-(pwsid, fips5) attribution table
-        geo_exp = explode_geo_to_counties(geo_all)
-        active = active_cws(systems_all)[
-            ["pwsid", "population_served_count"]
-        ]
-        attr = geo_exp.merge(active, on="pwsid", how="inner")
-
-        open_health_pwsids = set(
-            violations_all[
-                (violations_all["rtc_date"].isna())
-                & (violations_all["is_health_based_ind"] == "Y")
-            ]["pwsid"]
-        )
-        attr["has_open_health"] = attr["pwsid"].isin(open_health_pwsids).astype(int)
-        attr["is_small"] = (
-            attr["population_served_count"] < SMALL_SYSTEM_THRESHOLD
-        ).astype(int)
-
-        by_county = attr.groupby(
-            ["fips5", "county_display", "primacy_agency_code"], as_index=False
-        ).agg(
-            systems=("pwsid", "nunique"),
-            pop_served=("population_served_count", "sum"),
-            with_open_health=("has_open_health", "sum"),
-            small_with_open_health=(
-                "has_open_health",
-                lambda s: int(((s == 1) & (attr.loc[s.index, "is_small"] == 1)).sum()),
-            ),
-        )
-        by_county["pct_open_health"] = (
-            100 * by_county["with_open_health"] / by_county["systems"].clip(lower=1)
-        )
-
+        # by_county and geo_exp are pre-computed at module scope.
         metric_to_col = {
             "% of CWS with open health-based violation": ("pct_open_health", ".1f", "%"),
             "Active CWS count": ("systems", ",", ""),
@@ -539,6 +1105,7 @@ with tab_map:
             margin=dict(l=0, r=0, t=10, b=0),
             coloraxis_colorbar=dict(title=metric_choice),
         )
+
         map_selection = st.plotly_chart(
             fig,
             width="stretch",
@@ -547,106 +1114,20 @@ with tab_map:
             key="map",
         )
 
-        # --- Drill-down panel: systems in the clicked county ---
-        clicked_fips: str | None = None
-        points = (map_selection or {}).get("selection", {}).get("points", [])
-        if points:
-            clicked_fips = points[0].get("location")
-
-        if clicked_fips:
-            county_row = by_county[by_county["fips5"] == clicked_fips]
-            if not county_row.empty:
-                cr = county_row.iloc[0]
-                st.markdown(
-                    f"### {cr['county_display']} ({cr['primacy_agency_code']}) — "
-                    f"{int(cr['systems'])} active CWS"
-                )
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Active CWS", f"{int(cr['systems']):,}")
-                c2.metric(
-                    "With open health-based viol.",
-                    f"{int(cr['with_open_health']):,}",
-                    delta=f"{cr['pct_open_health']:.1f}%",
-                    delta_color="inverse",
-                )
-                c3.metric("Population served", f"{int(cr['pop_served']):,}")
-
-                county_pwsids = geo_exp[geo_exp["fips5"] == clicked_fips]["pwsid"].unique()
-                county_systems = systems_all[systems_all["pwsid"].isin(county_pwsids)].copy()
-                county_systems = active_cws(county_systems)
-
-                viol_counts = (
-                    violations_all[
-                        (violations_all["pwsid"].isin(county_pwsids))
-                        & (violations_all["rtc_date"].isna())
-                        & (violations_all["is_health_based_ind"] == "Y")
-                    ]
-                    .groupby("pwsid")
-                    .size()
-                    .rename("open_health_violations")
-                )
-                county_systems = county_systems.merge(
-                    viol_counts, left_on="pwsid", right_index=True, how="left"
-                )
-                county_systems["open_health_violations"] = (
-                    county_systems["open_health_violations"].fillna(0).astype(int)
-                )
-                county_systems["source"] = label(
-                    county_systems["primary_source_code"], SOURCE_LABELS
-                )
-                county_systems["owner"] = label(
-                    county_systems["owner_type_code"], OWNER_TYPE_LABELS
-                )
-
-                table = county_systems[
-                    [
-                        "pwsid",
-                        "pws_name",
-                        "city_name",
-                        "population_served_count",
-                        "service_connections_count",
-                        "source",
-                        "owner",
-                        "open_health_violations",
-                    ]
-                ].sort_values(
-                    ["open_health_violations", "population_served_count"],
-                    ascending=[False, False],
-                ).rename(
-                    columns={
-                        "pwsid": "PWSID",
-                        "pws_name": "System",
-                        "city_name": "City",
-                        "population_served_count": "Population",
-                        "service_connections_count": "Connections",
-                        "source": "Source",
-                        "owner": "Owner",
-                        "open_health_violations": "Open health-based viols.",
-                    }
-                )
-
-                selection = st.dataframe(
-                    table,
-                    width="stretch",
-                    hide_index=True,
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    key="county_systems_table",
-                )
-                rows = (selection or {}).get("selection", {}).get("rows", [])
-                if rows:
-                    chosen_pws = table.iloc[rows[0]]["PWSID"]
-                    st.session_state["selected_pws"] = chosen_pws
-                    st.success(
-                        f"Selected **{chosen_pws}** — open the **System Detail** "
-                        f"tab to view the full record."
-                    )
-            else:
-                st.info("Selected county has no matched data.")
+        # "Back to county" path — user closed system dialog and asked to return.
+        reopen_fips = st.session_state.pop("reopen_county_fips", None)
+        if reopen_fips:
+            show_county_dialog(reopen_fips, by_county, geo_exp)
         else:
-            st.caption("Click a county on the map to see the systems serving it.")
+            # New county click → open county dialog over the map
+            points = (map_selection or {}).get("selection", {}).get("points", [])
+            clicked_fips = points[0].get("location") if points else None
+            if clicked_fips and clicked_fips != st.session_state.get("county_dialog_last"):
+                st.session_state["county_dialog_last"] = clicked_fips
+                show_county_dialog(clicked_fips, by_county, geo_exp)
 
         with st.expander("County data table"):
+            st.caption("Check the box on any row to open that county.")
             disp = by_county.sort_values(col, ascending=False).rename(
                 columns={
                     "fips5": "FIPS",
@@ -658,13 +1139,28 @@ with tab_map:
                     "pop_served": "Population served",
                     "small_with_open_health": "Small w/ open health-based viol.",
                 }
+            ).reset_index(drop=True)
+            table_selection = st.dataframe(
+                disp,
+                width="stretch",
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="county_table_select",
             )
-            st.dataframe(disp, width="stretch", hide_index=True)
+            sel_rows = (table_selection or {}).get("selection", {}).get("rows", [])
+            if sel_rows:
+                trigger_county_modal(
+                    disp.iloc[sel_rows[0]]["FIPS"], "county_table_last"
+                )
 
 
 # --- CU Watchlist -------------------------------------------------------------
 with tab_watchlist:
-    st.subheader("CU watchlist")
+    section(
+        "CU watchlist",
+        "Small active community systems with open health-based violations.",
+    )
     st.caption(
         "Small active community systems with at least one open health-based "
         "violation. Sorted by population × open-violation count."
@@ -728,149 +1224,66 @@ with tab_watchlist:
     )
 
     st.metric("Systems on watchlist", f"{len(watch_display):,}")
-    st.dataframe(watch_display, width="stretch", hide_index=True)
+    st.caption("Check a row to open the system detail.")
+    sel_watch = st.dataframe(
+        watch_display.reset_index(drop=True),
+        width="stretch",
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="watchlist_table",
+    )
+    rows = (sel_watch or {}).get("selection", {}).get("rows", [])
+    if rows:
+        trigger_system_modal(
+            watch_display.reset_index(drop=True).iloc[rows[0]]["PWSID"],
+            "watchlist_last",
+        )
 
 
 # --- System detail ------------------------------------------------------------
 with tab_detail:
-    st.subheader("System detail")
-    # Allow picking from the full systems table if the user came from the Map tab
-    # and the chosen PWSID isn't in the current filtered set.
-    preselected = st.session_state.get("selected_pws")
-    if preselected and preselected not in set(systems["pwsid"]):
-        pws_source = systems_all
-        st.info(
-            f"Showing {preselected} from the Map selection (current sidebar filters "
-            f"don't include this system)."
-        )
-    else:
-        pws_source = systems
-
-    preselected_state = (
-        systems_all.loc[systems_all["pwsid"] == preselected, "primacy_agency_code"]
-        .iloc[0]
-        if preselected and (systems_all["pwsid"] == preselected).any()
-        else None
+    section(
+        "Find a system",
+        "Pick a state, then a system. The full record opens in a popup. "
+        "Or use the search at the top of the page from any tab.",
     )
 
-    state_options = sorted(pws_source["primacy_agency_code"].dropna().unique().tolist())
+    state_options = sorted(systems_all["primacy_agency_code"].dropna().unique().tolist())
     if not state_options:
-        st.warning("No systems available with the current filters.")
+        st.warning("No systems available.")
         st.stop()
 
-    default_state_idx = (
-        state_options.index(preselected_state)
-        if preselected_state in state_options
-        else 0
-    )
     with st.container(border=True):
-        st.markdown("#### Choose a system to view")
-        st.caption("Pick a state, then the system you want details on.")
         col_state, col_system = st.columns([1, 3])
         with col_state:
-            state_choice = st.selectbox(
-                "**State**", state_options, index=default_state_idx
-            )
+            state_choice = st.selectbox("**State**", state_options, index=0)
 
-        state_systems = pws_source[pws_source["primacy_agency_code"] == state_choice]
+        state_systems = systems_all[systems_all["primacy_agency_code"] == state_choice]
         pws_list = state_systems[["pwsid", "pws_name"]].dropna().drop_duplicates()
         pws_list = pws_list.sort_values("pws_name")
         pws_list["label"] = pws_list["pwsid"] + " — " + pws_list["pws_name"]
         options = pws_list["pwsid"].tolist()
         with col_system:
-            system_index = (
-                options.index(preselected) if preselected in options else None
-            )
             choice = st.selectbox(
                 "**System**",
                 options=options,
-                index=system_index,
-                placeholder="Select a system...",
+                index=None,
+                placeholder="Type or scroll…",
                 format_func=lambda p: pws_list.set_index("pwsid").loc[p, "label"],
+                key="find_system_picker",
             )
-
-    if choice:
-        row = systems_all[systems_all["pwsid"] == choice].iloc[0]
-        st.markdown(f"### {row['pws_name']}")
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Population served", f"{int(row['population_served_count'] or 0):,}")
-        c2.metric("Connections", f"{int(row['service_connections_count'] or 0):,}")
-        c3.metric(
-            "System type",
-            TYPE_LABELS.get(row["pws_type_code"], row["pws_type_code"]),
-        )
-
-        c4, c5, c6 = st.columns(3)
-        c4.metric(
-            "Source",
-            SOURCE_LABELS.get(row["primary_source_code"], row["primary_source_code"]),
-        )
-        c5.metric(
-            "Owner",
-            OWNER_TYPE_LABELS.get(row["owner_type_code"], row["owner_type_code"]),
-        )
-        c6.metric("Status", "Active" if row["pws_activity_code"] == "A" else "Inactive")
-
-        st.markdown("**Location**")
-        st.write(
-            f"{row.get('address_line1', '') or ''}  \n"
-            f"{row.get('city_name', '')}, {row.get('state_code', '')} "
-            f"{row.get('zip_code', '')}"
-        )
-
-        with st.expander("Contact (PII — handle per CU confidentiality rules)"):
-            st.write(f"**Administrator:** {row.get('admin_name', '—')}")
-            st.write(f"**Organization:** {row.get('org_name', '—')}")
-            st.write(f"**Email:** {row.get('email_addr', '—')}")
-            st.write(f"**Phone:** {row.get('phone_number', '—')}")
-
-        st.divider()
-        st.markdown("**Violation history**")
-        v = violations_all[violations_all["pwsid"] == choice].copy()
-        if v.empty:
-            st.info("No violations in the sample.")
-        else:
-            v["status"] = v["rtc_date"].apply(
-                lambda d: "Returned to compliance" if pd.notna(d) else "Open"
-            )
-            v_display = v[
-                [
-                    "compl_per_begin_date",
-                    "violation_code",
-                    "violation_category_code",
-                    "is_health_based_ind",
-                    "contaminant_code",
-                    "status",
-                    "rtc_date",
-                ]
-            ].sort_values("compl_per_begin_date", ascending=False)
-            v_display.columns = [
-                "Begin",
-                "Code",
-                "Category",
-                "Health-based",
-                "Contaminant",
-                "Status",
-                "RTC date",
-            ]
-            st.dataframe(v_display, width="stretch", hide_index=True)
-
-        st.markdown("**Lead & copper samples**")
-        l = lcr_all[lcr_all["pwsid"] == choice]
-        if l.empty:
-            st.info("No LCR samples in the sample.")
-        else:
-            st.dataframe(
-                l[["sample_id", "sampling_start_date", "sampling_end_date"]],
-                width="stretch",
-                hide_index=True,
-            )
+        if choice:
+            show_system_dialog(choice)
+            st.session_state["find_system_picker"] = None
 
 
 # --- Lead & Copper ------------------------------------------------------------
 with tab_lcr:
-    st.subheader("Lead & copper sampling")
+    section(
+        "Lead & copper sampling",
+        f"Federal action level is {LCR_ACTION_LEVEL_PPB} ppb at the 90th percentile.",
+    )
     st.caption(
         f"Federal action level is {LCR_ACTION_LEVEL_PPB} ppb at the 90th percentile. "
         "Sample-level results aren't in this Envirofacts table — only sampling "
@@ -892,7 +1305,7 @@ with tab_lcr:
         fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig, width="stretch")
 
-    st.markdown("**Systems with most recent sampling**")
+    section("Most recent sampling", "Top 50 systems by last sample date.")
     recent = (
         lcr.sort_values("sampling_end_date", ascending=False)
         .drop_duplicates("pwsid")
@@ -913,12 +1326,28 @@ with tab_lcr:
             }
         )
     )
-    st.dataframe(recent, width="stretch", hide_index=True)
+    st.caption("Check a row to open the system detail.")
+    sel_lcr = st.dataframe(
+        recent.reset_index(drop=True),
+        width="stretch",
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="lcr_recent_table",
+    )
+    rows = (sel_lcr or {}).get("selection", {}).get("rows", [])
+    if rows:
+        trigger_system_modal(
+            recent.reset_index(drop=True).iloc[rows[0]]["PWSID"], "lcr_recent_last"
+        )
 
 
 # --- Violations ---------------------------------------------------------------
 with tab_violations:
-    st.subheader("Violations browser")
+    section(
+        "Violations browser",
+        "Filter by category, status, and severity across selected states.",
+    )
     health_only = st.checkbox("Health-based only", value=True)
     open_only = st.checkbox("Open only (no return-to-compliance date)", value=True)
 
@@ -974,4 +1403,18 @@ with tab_violations:
             }
         )
     )
-    st.dataframe(v_display, width="stretch", hide_index=True)
+    st.caption("Check a row to open the system detail.")
+    sel_v = st.dataframe(
+        v_display.reset_index(drop=True),
+        width="stretch",
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="violations_table",
+    )
+    rows = (sel_v or {}).get("selection", {}).get("rows", [])
+    if rows:
+        trigger_system_modal(
+            v_display.reset_index(drop=True).iloc[rows[0]]["PWSID"],
+            "violations_last",
+        )
