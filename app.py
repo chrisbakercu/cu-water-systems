@@ -588,10 +588,42 @@ def _coerce_dates(frames: dict[str, pd.DataFrame]) -> None:
                 df[c] = pd.to_datetime(df[c], errors="coerce")
 
 
-@st.cache_data(show_spinner="Loading water system data...", max_entries=1)
-def _load_all_states(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
-    """Load every available state ONCE. Filtering happens downstream so we don't
-    keep a separate copy per state-combo the user clicks through."""
+# Only read the columns the app actually uses — Envirofacts returns ~40 per table.
+USECOLS = {
+    "water_systems": [
+        "pwsid", "pws_name", "primacy_agency_code", "city_name", "state_code",
+        "zip_code", "address_line1", "pws_activity_code", "pws_type_code",
+        "primary_source_code", "owner_type_code", "population_served_count",
+        "service_connections_count", "admin_name", "org_name", "email_addr",
+        "phone_number", "alt_phone_number", "pws_deactivation_date",
+    ],
+    "violations": [
+        "pwsid", "primacy_agency_code", "violation_id",
+        "compl_per_begin_date", "compl_per_end_date", "rtc_date",
+        "is_health_based_ind", "violation_category_code", "violation_code",
+        "contaminant_code", "status",
+    ],
+    "lcr_samples": [
+        "pwsid", "primacy_agency_code", "sample_id",
+        "sampling_end_date", "sampling_start_date",
+    ],
+    "geo": [
+        "pwsid", "primacy_agency_code", "area_type_code", "county_served",
+    ],
+}
+
+
+def _read_parquet_subset(path: Path, allowed: list[str]) -> pd.DataFrame:
+    """Read a parquet file restricted to columns that exist on disk and are in `allowed`."""
+    import pyarrow.parquet as pq
+    available = set(pq.read_schema(path).names)
+    cols = [c for c in allowed if c in available]
+    return pd.read_parquet(path, columns=cols)
+
+
+@st.cache_data(show_spinner="Loading water system data...", max_entries=2)
+def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+    """Load only the requested states. Bounded cache so toggling can't grow memory."""
     name_map = {
         "systems": "water_systems",
         "violations": "violations",
@@ -601,7 +633,7 @@ def _load_all_states(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
     frames: dict[str, pd.DataFrame] = {}
     for key, fname in name_map.items():
         parts = [
-            pd.read_parquet(PARQUET_DIR / state / f"{fname}.parquet")
+            _read_parquet_subset(PARQUET_DIR / state / f"{fname}.parquet", USECOLS[fname])
             for state in states
         ]
         frames[key] = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
@@ -612,7 +644,7 @@ def _load_all_states(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
                     "primary_source_code", "owner_type_code"],
         "violations": ["primacy_agency_code", "is_health_based_ind",
                        "violation_category_code", "violation_code"],
-        "lcr": ["primacy_agency_code", "contaminant_code", "unit_of_measure"],
+        "lcr": ["primacy_agency_code"],
         "geo": ["primacy_agency_code", "area_type_code"],
     }
     for key, cols in _to_category.items():
@@ -621,17 +653,6 @@ def _load_all_states(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
             if c in df.columns:
                 df[c] = df[c].astype("category")
     return frames
-
-
-def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
-    """Return frames filtered to `states`. Uses a single full-load cache so
-    toggling state selection never grows memory."""
-    full = _load_all_states(tuple(_available_states()))
-    keep = set(states)
-    return {
-        key: df[df["primacy_agency_code"].isin(keep)] if "primacy_agency_code" in df.columns else df
-        for key, df in full.items()
-    }
 
 
 @st.cache_data
@@ -650,12 +671,27 @@ def load_fips_lookup() -> dict[tuple[str, str], tuple[str, str]]:
     return lookup
 
 
-@st.cache_data
+# CU's seven primacy agencies, mapped to their 2-digit state FIPS prefixes.
+CU_STATE_FIPS = {"AL": "01", "AR": "05", "LA": "22", "MS": "28", "OK": "40", "TN": "47", "TX": "48"}
+
+
+@st.cache_data(max_entries=1)
 def load_counties_geojson() -> dict | None:
+    """Load and trim US counties GeoJSON to CU's 7-state footprint only.
+
+    The raw file covers all ~3100 US counties. We use only ~700 of them, so
+    keeping the rest in memory wastes ~80% of this asset.
+    """
     if not GEOJSON_FILE.exists():
         return None
     import json
-    return json.loads(GEOJSON_FILE.read_text())
+    raw = json.loads(GEOJSON_FILE.read_text())
+    keep_fips = set(CU_STATE_FIPS.values())
+    features = [
+        f for f in raw.get("features", [])
+        if f.get("properties", {}).get("STATE") in keep_fips
+    ]
+    return {"type": raw.get("type", "FeatureCollection"), "features": features}
 
 
 def _normalize_county(name: str) -> str:
@@ -668,18 +704,14 @@ def _normalize_county(name: str) -> str:
     ).strip().lower()
 
 
-@st.cache_data(show_spinner=False, max_entries=1)
-def _explode_geo_full(states_key: tuple[str, ...]) -> pd.DataFrame:
-    """Full geo explode for ALL available states — cached once, filtered downstream."""
-    full = _load_all_states(tuple(_available_states()))
-    geo = full["geo"]
+def explode_geo_to_counties(geo: pd.DataFrame) -> pd.DataFrame:
+    """One row per (pwsid, county). Splits comma-separated multi-county strings."""
     g = geo[geo["area_type_code"].isin(["CN", "CN,CT"])].copy()
     g = g[g["county_served"].notna()]
     g = g.assign(county_served=g["county_served"].str.split(",")).explode("county_served")
     g["county_served"] = g["county_served"].str.strip()
     g["primacy_agency_code"] = g["primacy_agency_code"].astype(str)
     g["norm"] = g["county_served"].map(_normalize_county)
-    # Vectorized alias swap.
     alias_keys = list(COUNTY_NAME_ALIASES.keys())
     if alias_keys:
         alias_mask = pd.Series(
@@ -694,7 +726,6 @@ def _explode_geo_full(states_key: tuple[str, ...]) -> pd.DataFrame:
                 )
             ]
     lookup = load_fips_lookup()
-    # Build a small DataFrame from the lookup once, then merge — much faster than per-row apply().
     lookup_df = pd.DataFrame(
         [(s, n, fips, disp) for (s, n), (fips, disp) in lookup.items()],
         columns=["primacy_agency_code", "norm", "fips5", "county_display"],
@@ -704,13 +735,6 @@ def _explode_geo_full(states_key: tuple[str, ...]) -> pd.DataFrame:
     return g.dropna(subset=["fips5"])[
         ["pwsid", "primacy_agency_code", "county_served", "county_display", "fips5"]
     ].reset_index(drop=True)
-
-
-def explode_geo_to_counties(geo: pd.DataFrame) -> pd.DataFrame:
-    """One row per (pwsid, county). Uses cached full-state explode + filter."""
-    full = _explode_geo_full(tuple(_available_states()))
-    keep_states = set(geo["primacy_agency_code"].astype(str).unique())
-    return full[full["primacy_agency_code"].isin(keep_states)]
 
 
 @st.cache_data(max_entries=4)
@@ -1023,17 +1047,13 @@ if pending:
 # ---------------------------------------------------------------------------
 # Pre-compute county-level aggregates so every tab can drive the county dialog
 # ---------------------------------------------------------------------------
-@st.cache_data(show_spinner=False, max_entries=4)
+@st.cache_data(show_spinner=False, max_entries=2)
 def _county_rollup(states_key: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Returns (geo_exp, by_county) for the given state set. Cached by state set."""
-    full = _load_all_states(tuple(_available_states()))
-    keep = set(states_key)
-    sys_f = full["systems"]
-    sys_f = sys_f[sys_f["primacy_agency_code"].isin(keep)]
-    vio_f = full["violations"]
-    vio_f = vio_f[vio_f["primacy_agency_code"].isin(keep)]
-    geo_exp = _explode_geo_full(tuple(_available_states()))
-    geo_exp = geo_exp[geo_exp["primacy_agency_code"].isin(keep)]
+    frames = load_from_parquet(states_key)
+    sys_f = frames["systems"]
+    vio_f = frames["violations"]
+    geo_exp = explode_geo_to_counties(frames["geo"])
 
     active = sys_f[(sys_f["pws_activity_code"] == "A") & (sys_f["pws_type_code"] == "CWS")]
     active_pop = active[["pwsid", "population_served_count"]]
@@ -1233,10 +1253,9 @@ with tab_map:
         }
         col, fmt, suffix = metric_to_col[metric_choice]
 
-        cu_state_fips = {"AR": "05", "AL": "01", "LA": "22", "MS": "28", "OK": "40", "TN": "47", "TX": "48"}
         showing_state_fips = [
-            cu_state_fips[s] for s in by_county["primacy_agency_code"].unique()
-            if s in cu_state_fips
+            CU_STATE_FIPS[s] for s in by_county["primacy_agency_code"].unique()
+            if s in CU_STATE_FIPS
         ]
         plot_geojson = {
             "type": "FeatureCollection",
