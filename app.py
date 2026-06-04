@@ -559,8 +559,10 @@ def _coerce_dates(frames: dict[str, pd.DataFrame]) -> None:
                 df[c] = pd.to_datetime(df[c], errors="coerce")
 
 
-@st.cache_data(show_spinner="Loading water system data...")
-def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+@st.cache_data(show_spinner="Loading water system data...", max_entries=1)
+def _load_all_states(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+    """Load every available state ONCE. Filtering happens downstream so we don't
+    keep a separate copy per state-combo the user clicks through."""
     name_map = {
         "systems": "water_systems",
         "violations": "violations",
@@ -575,7 +577,32 @@ def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
         ]
         frames[key] = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     _coerce_dates(frames)
+    # Cast frequently-grouped string columns to category — large memory win.
+    _to_category = {
+        "systems": ["primacy_agency_code", "pws_activity_code", "pws_type_code",
+                    "primary_source_code", "owner_type_code"],
+        "violations": ["primacy_agency_code", "is_health_based_ind",
+                       "violation_category_code", "violation_code"],
+        "lcr": ["primacy_agency_code", "contaminant_code", "unit_of_measure"],
+        "geo": ["primacy_agency_code", "area_type_code"],
+    }
+    for key, cols in _to_category.items():
+        df = frames[key]
+        for c in cols:
+            if c in df.columns:
+                df[c] = df[c].astype("category")
     return frames
+
+
+def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+    """Return frames filtered to `states`. Uses a single full-load cache so
+    toggling state selection never grows memory."""
+    full = _load_all_states(tuple(_available_states()))
+    keep = set(states)
+    return {
+        key: df[df["primacy_agency_code"].isin(keep)] if "primacy_agency_code" in df.columns else df
+        for key, df in full.items()
+    }
 
 
 @st.cache_data
@@ -612,34 +639,52 @@ def _normalize_county(name: str) -> str:
     ).strip().lower()
 
 
-def explode_geo_to_counties(geo: pd.DataFrame) -> pd.DataFrame:
-    """One row per (pwsid, county). Splits comma-separated multi-county strings."""
+@st.cache_data(show_spinner=False, max_entries=1)
+def _explode_geo_full(states_key: tuple[str, ...]) -> pd.DataFrame:
+    """Full geo explode for ALL available states — cached once, filtered downstream."""
+    full = _load_all_states(tuple(_available_states()))
+    geo = full["geo"]
     g = geo[geo["area_type_code"].isin(["CN", "CN,CT"])].copy()
     g = g[g["county_served"].notna()]
-    g = g.assign(
-        county_served=g["county_served"].str.split(","),
-    ).explode("county_served")
+    g = g.assign(county_served=g["county_served"].str.split(",")).explode("county_served")
     g["county_served"] = g["county_served"].str.strip()
+    g["primacy_agency_code"] = g["primacy_agency_code"].astype(str)
     g["norm"] = g["county_served"].map(_normalize_county)
-    g["norm"] = g.apply(
-        lambda r: COUNTY_NAME_ALIASES.get((r["primacy_agency_code"], r["norm"]), r["norm"]),
-        axis=1,
-    )
+    # Vectorized alias swap.
+    alias_keys = list(COUNTY_NAME_ALIASES.keys())
+    if alias_keys:
+        alias_mask = pd.Series(
+            list(zip(g["primacy_agency_code"], g["norm"]))
+        ).isin(alias_keys).values
+        if alias_mask.any():
+            g.loc[alias_mask, "norm"] = [
+                COUNTY_NAME_ALIASES[(s, n)]
+                for s, n in zip(
+                    g.loc[alias_mask, "primacy_agency_code"],
+                    g.loc[alias_mask, "norm"],
+                )
+            ]
     lookup = load_fips_lookup()
-    g["fips5"] = g.apply(
-        lambda r: (lookup.get((r["primacy_agency_code"], r["norm"])) or (None, None))[0],
-        axis=1,
+    # Build a small DataFrame from the lookup once, then merge — much faster than per-row apply().
+    lookup_df = pd.DataFrame(
+        [(s, n, fips, disp) for (s, n), (fips, disp) in lookup.items()],
+        columns=["primacy_agency_code", "norm", "fips5", "county_display"],
     )
-    g["county_display"] = g.apply(
-        lambda r: (lookup.get((r["primacy_agency_code"], r["norm"])) or (None, r["county_served"]))[1],
-        axis=1,
-    )
+    g = g.merge(lookup_df, on=["primacy_agency_code", "norm"], how="left")
+    g["county_display"] = g["county_display"].fillna(g["county_served"])
     return g.dropna(subset=["fips5"])[
         ["pwsid", "primacy_agency_code", "county_served", "county_display", "fips5"]
-    ]
+    ].reset_index(drop=True)
 
 
-@st.cache_data
+def explode_geo_to_counties(geo: pd.DataFrame) -> pd.DataFrame:
+    """One row per (pwsid, county). Uses cached full-state explode + filter."""
+    full = _explode_geo_full(tuple(_available_states()))
+    keep_states = set(geo["primacy_agency_code"].astype(str).unique())
+    return full[full["primacy_agency_code"].isin(keep_states)]
+
+
+@st.cache_data(max_entries=4)
 def load_manifests(states: tuple[str, ...]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for s in states:
@@ -949,33 +994,46 @@ if pending:
 # ---------------------------------------------------------------------------
 # Pre-compute county-level aggregates so every tab can drive the county dialog
 # ---------------------------------------------------------------------------
-geo_exp = explode_geo_to_counties(geo_all)
-_active_pop = active_cws(systems_all)[["pwsid", "population_served_count"]]
-_attr = geo_exp.merge(_active_pop, on="pwsid", how="inner")
-_open_health_pwsids = set(
-    violations_all[
-        (violations_all["rtc_date"].isna())
-        & (violations_all["is_health_based_ind"] == "Y")
-    ]["pwsid"]
-)
-_attr["has_open_health"] = _attr["pwsid"].isin(_open_health_pwsids).astype(int)
-_attr["is_small"] = (
-    _attr["population_served_count"] < SMALL_SYSTEM_THRESHOLD
-).astype(int)
-by_county = _attr.groupby(
-    ["fips5", "county_display", "primacy_agency_code"], as_index=False
-).agg(
-    systems=("pwsid", "nunique"),
-    pop_served=("population_served_count", "sum"),
-    with_open_health=("has_open_health", "sum"),
-    small_with_open_health=(
-        "has_open_health",
-        lambda s: int(((s == 1) & (_attr.loc[s.index, "is_small"] == 1)).sum()),
-    ),
-)
-by_county["pct_open_health"] = (
-    100 * by_county["with_open_health"] / by_county["systems"].clip(lower=1)
-)
+@st.cache_data(show_spinner=False, max_entries=4)
+def _county_rollup(states_key: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Returns (geo_exp, by_county) for the given state set. Cached by state set."""
+    full = _load_all_states(tuple(_available_states()))
+    keep = set(states_key)
+    sys_f = full["systems"]
+    sys_f = sys_f[sys_f["primacy_agency_code"].isin(keep)]
+    vio_f = full["violations"]
+    vio_f = vio_f[vio_f["primacy_agency_code"].isin(keep)]
+    geo_exp = _explode_geo_full(tuple(_available_states()))
+    geo_exp = geo_exp[geo_exp["primacy_agency_code"].isin(keep)]
+
+    active = sys_f[(sys_f["pws_activity_code"] == "A") & (sys_f["pws_type_code"] == "CWS")]
+    active_pop = active[["pwsid", "population_served_count"]]
+    attr = geo_exp.merge(active_pop, on="pwsid", how="inner")
+    open_health = set(
+        vio_f[(vio_f["rtc_date"].isna()) & (vio_f["is_health_based_ind"] == "Y")]["pwsid"]
+    )
+    attr["has_open_health"] = attr["pwsid"].isin(open_health).astype("int8")
+    attr["is_small"] = (
+        attr["population_served_count"] < SMALL_SYSTEM_THRESHOLD
+    ).astype("int8")
+    attr["small_open_health"] = (
+        (attr["has_open_health"] == 1) & (attr["is_small"] == 1)
+    ).astype("int8")
+    rolled = attr.groupby(
+        ["fips5", "county_display", "primacy_agency_code"], as_index=False, observed=True
+    ).agg(
+        systems=("pwsid", "nunique"),
+        pop_served=("population_served_count", "sum"),
+        with_open_health=("has_open_health", "sum"),
+        small_with_open_health=("small_open_health", "sum"),
+    )
+    rolled["pct_open_health"] = (
+        100 * rolled["with_open_health"] / rolled["systems"].clip(lower=1)
+    )
+    return geo_exp.reset_index(drop=True), rolled
+
+
+geo_exp, by_county = _county_rollup(tuple(selected_states))
 
 
 def trigger_system_modal(pwsid: str, key: str, back_fips: str | None = None) -> None:
