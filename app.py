@@ -1020,9 +1020,10 @@ st.markdown(
         letter-spacing: 0;
       }
       .state-picker-hint {
-        font-size: 0.78rem;
-        color: #475569;
+        font-size: 0.7rem;
+        color: #a0a4a8;
         margin-top: 0.5rem;
+        font-weight: 400;
       }
     </style>
     """,
