@@ -66,6 +66,18 @@ px.defaults.color_continuous_scale = CU_BLUE_SCALE
 px.defaults.template = "plotly_white"
 
 
+def system_url(pwsid: str, back_county: str | None = None) -> str:
+    """Build a relative URL that opens the system detail modal on rerun."""
+    if back_county:
+        return f"?system={pwsid}&back={back_county}"
+    return f"?system={pwsid}"
+
+
+def county_url(fips: str) -> str:
+    """Build a relative URL that opens the county detail modal on rerun."""
+    return f"?county={fips}"
+
+
 def _safe_str(value) -> str:
     """Coerce a pandas-row cell to a plain str, treating NaN/None as empty."""
     if value is None:
@@ -934,48 +946,39 @@ def show_county_dialog(fips: str, by_county_df, geo_exp_df) -> None:
         county_systems["open_health_violations"].fillna(0).astype(int)
     )
 
-    table = county_systems.sort_values(
+    _county_sorted = county_systems.sort_values(
         ["open_health_violations", "population_served_count"],
         ascending=[False, False],
-    )[
-        [
-            "pwsid",
-            "pws_name",
-            "city_name",
-            "population_served_count",
-            "service_connections_count",
-            "open_health_violations",
-        ]
-    ].rename(
-        columns={
-            "pwsid": "PWSID",
-            "pws_name": "System",
-            "city_name": "City",
-            "population_served_count": "Population",
-            "service_connections_count": "Connections",
-            "open_health_violations": "Open viols.",
-        }
     )
 
-    st.markdown(
-        "<div style='font-size:0.85rem;color:#888b8d;margin:0.5rem 0 0.25rem 0;'>"
-        "Click any row to open the system detail.</div>",
-        unsafe_allow_html=True,
-    )
-    selection = st.dataframe(
+    def _fmt_county_int(v) -> str:
+        return f"{int(v):,}" if pd.notna(v) else "—"
+
+    table = pd.DataFrame({
+        "Details": [system_url(p, back_county=fips) for p in _county_sorted["pwsid"]],
+        "PWSID": _county_sorted["pwsid"].astype(str).values,
+        "System": _county_sorted["pws_name"].fillna("—").astype(str).values,
+        "City": _county_sorted["city_name"].fillna("—").astype(str).values,
+        "Population": _county_sorted["population_served_count"].apply(_fmt_county_int).values,
+        "Connections": _county_sorted["service_connections_count"].apply(_fmt_county_int).values,
+        "Open viols.": _county_sorted["open_health_violations"].apply(_fmt_county_int).values,
+    })
+
+    st.dataframe(
         table,
         width="stretch",
         hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
         key=f"county_dialog_table_{fips}",
+        column_config={
+            "Details": st.column_config.LinkColumn(
+                "Details", display_text="View →", width="small"
+            ),
+            **{
+                col: st.column_config.TextColumn(col)
+                for col in table.columns if col != "Details"
+            },
+        },
     )
-    rows = (selection or {}).get("selection", {}).get("rows", [])
-    if rows:
-        chosen_pws = table.iloc[rows[0]]["PWSID"]
-        st.session_state["open_system_modal"] = chosen_pws
-        st.session_state["system_modal_back"] = fips
-        st.rerun()
 
 
 # Global search: type system name or PWSID from any tab to open the modal.
@@ -1016,7 +1019,21 @@ with st.container(border=True):
         show_system_dialog(picked)
         st.session_state["global_search"] = None
 
-# Pending modal trigger from Map drill-down or other panels
+# Route ?system=...&county=... links from Details columns into the modal flow.
+_qp = st.query_params
+_qp_system = _qp.get("system")
+_qp_county = _qp.get("county")
+_qp_back = _qp.get("back")
+if _qp_system or _qp_county:
+    st.query_params.clear()  # one-shot; don't re-fire on refresh / back button
+    if _qp_system:
+        st.session_state["open_system_modal"] = _qp_system
+        if _qp_back:
+            st.session_state["system_modal_back"] = _qp_back
+    if _qp_county and not _qp_system:
+        st.session_state["pending_county_modal"] = _qp_county
+
+# Pending modal trigger from drill-down clicks
 pending = st.session_state.pop("open_system_modal", None)
 back_fips = st.session_state.pop("system_modal_back", None)
 if pending:
@@ -1153,40 +1170,37 @@ with tab_scorecard:
 
     section(
         "Top counties & parishes",
-        "By active community water system count. Check a row to open the county.",
+        "By active community water system count. Click View to open the county.",
     )
-    parish_rollup = (
+    _parish_src = (
         by_county[by_county["primacy_agency_code"].isin(selected_states)]
         .sort_values("systems", ascending=False)
         .head(15)
-        .reset_index(drop=True)[
-            ["county_display", "primacy_agency_code", "systems",
-             "with_open_health", "pct_open_health", "fips5"]
-        ]
-        .rename(
-            columns={
-                "county_display": "County / parish",
-                "primacy_agency_code": "State",
-                "systems": "Systems",
-                "with_open_health": "Open health-based",
-                "pct_open_health": "% open health-based",
-            }
-        )
+        .reset_index(drop=True)
     )
-    sel_parish = st.dataframe(
+    parish_rollup = pd.DataFrame({
+        "Details": [county_url(f) for f in _parish_src["fips5"]],
+        "County / parish": _parish_src["county_display"].astype(str).values,
+        "State": _parish_src["primacy_agency_code"].astype(str).values,
+        "Systems": _parish_src["systems"].apply(lambda v: f"{int(v):,}").values,
+        "Open health-based": _parish_src["with_open_health"].apply(lambda v: f"{int(v):,}").values,
+        "% open health-based": _parish_src["pct_open_health"].apply(lambda v: f"{v:.1f}").values,
+    })
+    st.dataframe(
         parish_rollup,
         width="stretch",
         hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        column_order=[c for c in parish_rollup.columns if c != "fips5"],
         key="scorecard_parish_table",
+        column_config={
+            "Details": st.column_config.LinkColumn(
+                "Details", display_text="View →", width="small"
+            ),
+            **{
+                col: st.column_config.TextColumn(col)
+                for col in parish_rollup.columns if col != "Details"
+            },
+        },
     )
-    rows = (sel_parish or {}).get("selection", {}).get("rows", [])
-    if rows:
-        trigger_county_modal(
-            parish_rollup.iloc[rows[0]]["fips5"], "scorecard_parish_last"
-        )
 
 
 # --- CU Watchlist -------------------------------------------------------------
@@ -1235,6 +1249,7 @@ with tab_watchlist:
         return f"{int(v):,}" if pd.notna(v) else "—"
 
     watch_display = pd.DataFrame({
+        "Details": [system_url(p) for p in watch_sorted["pwsid"]],
         "State": watch_sorted["primacy_agency_code"].astype(str).values,
         "PWSID": watch_sorted["pwsid"].astype(str).values,
         "System": watch_sorted["pws_name"].astype(str).values,
@@ -1246,27 +1261,24 @@ with tab_watchlist:
     })
 
     st.metric("Systems on watchlist", f"{len(watch_display):,}")
-    st.caption("Check a row to open the system detail.")
     # ~35px per row + 38px header. Show up to 100 rows tall before the page itself scrolls.
     _row_count = min(len(watch_display), 100)
-    sel_watch = st.dataframe(
+    st.dataframe(
         watch_display.reset_index(drop=True),
         width="stretch",
         height=max(_row_count * 35 + 38, 200),
         hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
         key="watchlist_table",
         column_config={
-            col: st.column_config.TextColumn(col) for col in watch_display.columns
+            "Details": st.column_config.LinkColumn(
+                "Details", display_text="View →", width="small"
+            ),
+            **{
+                col: st.column_config.TextColumn(col)
+                for col in watch_display.columns if col != "Details"
+            },
         },
     )
-    rows = (sel_watch or {}).get("selection", {}).get("rows", [])
-    if rows:
-        trigger_system_modal(
-            watch_display.reset_index(drop=True).iloc[rows[0]]["PWSID"],
-            "watchlist_last",
-        )
 
 
 # --- System detail ------------------------------------------------------------
@@ -1389,6 +1401,7 @@ with tab_lcr:
     )
 
     display = pd.DataFrame({
+        "Details": [system_url(p) for p in flagged["pwsid"]],
         "PWSID": flagged["pwsid"].astype(str).values,
         "System": flagged["pws_name"].astype(str).values,
         "State": flagged["primacy_agency_code"].astype(str).values,
@@ -1404,25 +1417,23 @@ with tab_lcr:
         "Status": flagged["status"].astype(str).values,
     })
 
-    st.caption("Check a row to open the system detail.")
     _lcr_rows = min(len(display), 100)
-    sel_lcr = st.dataframe(
+    st.dataframe(
         display.reset_index(drop=True),
         width="stretch",
         height=max(_lcr_rows * 35 + 38, 200),
         hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
         key="lcr_lapsed_table",
         column_config={
-            col: st.column_config.TextColumn(col) for col in display.columns
+            "Details": st.column_config.LinkColumn(
+                "Details", display_text="View →", width="small"
+            ),
+            **{
+                col: st.column_config.TextColumn(col)
+                for col in display.columns if col != "Details"
+            },
         },
     )
-    rows = (sel_lcr or {}).get("selection", {}).get("rows", [])
-    if rows:
-        trigger_system_modal(
-            display.reset_index(drop=True).iloc[rows[0]]["PWSID"], "lcr_lapsed_last"
-        )
 
 
 # --- Violations ---------------------------------------------------------------
@@ -1468,6 +1479,7 @@ with tab_violations:
         return d.strftime("%Y-%m-%d") if pd.notna(d) else "—"
 
     v_display = pd.DataFrame({
+        "Details": [system_url(p) for p in v_sorted["pwsid"]],
         "PWSID": v_sorted["pwsid"].astype(str).values,
         "System": v_sorted["pws_name"].fillna("—").astype(str).values,
         "Begin": v_sorted["compl_per_begin_date"].apply(_fmt_date).values,
@@ -1477,21 +1489,20 @@ with tab_violations:
         "RTC date": v_sorted["rtc_date"].apply(_fmt_date).values,
     })
 
-    st.caption("Check a row to open the system detail.")
     _v_rows = min(len(v_display), 100)
-    sel_v = st.dataframe(
+    st.dataframe(
         v_display.reset_index(drop=True),
         width="stretch",
         height=max(_v_rows * 35 + 38, 200),
         hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
         key="violations_table",
-        column_config={col: st.column_config.TextColumn(col) for col in v_display.columns},
+        column_config={
+            "Details": st.column_config.LinkColumn(
+                "Details", display_text="View →", width="small"
+            ),
+            **{
+                col: st.column_config.TextColumn(col)
+                for col in v_display.columns if col != "Details"
+            },
+        },
     )
-    rows = (sel_v or {}).get("selection", {}).get("rows", [])
-    if rows:
-        trigger_system_modal(
-            v_display.reset_index(drop=True).iloc[rows[0]]["PWSID"],
-            "violations_last",
-        )
