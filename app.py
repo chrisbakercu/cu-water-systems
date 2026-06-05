@@ -959,11 +959,25 @@ st.markdown(
 
 # State picker — single dropdown, persistent across tabs via session_state.
 # Styled as a prominent "start here" control so new users orient quickly.
+# We set key="state_picker_card" on the container so Streamlit adds a stable
+# .st-key-state_picker_card class we can target — more reliable than :has().
 st.markdown(
     """
     <style>
-      /* Find any bordered container that contains our marker, at any depth. */
-      div[data-testid="stVerticalBlockBorderWrapper"]:has(.state-picker-marker) {
+      /* Border lives on the wrapper element that st.container(border=True) renders.
+         When a key is set, Streamlit puts .st-key-<key> on a descendant; we
+         match the wrapper that contains it. */
+      [data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-state_picker_card),
+      .st-key-state_picker_card,
+      div[class*="st-key-state_picker_card"] [data-testid="stVerticalBlockBorderWrapper"] {
+        border: 3px solid #085eaa !important;
+        border-radius: 12px !important;
+        background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
+        box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
+      }
+      /* Fallback: if the key trick fails, this still styles the whole column
+         that wraps the picker. */
+      div[data-testid="stColumn"]:first-of-type [data-testid="stVerticalBlockBorderWrapper"]:has(.state-picker-marker) {
         border: 3px solid #085eaa !important;
         border-radius: 12px !important;
         background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
@@ -1006,7 +1020,7 @@ st.markdown(
 )
 picker_col, _picker_spacer = st.columns([2, 3])
 with picker_col:
-    with st.container(border=True):
+    with st.container(border=True, key="state_picker_card"):
         st.markdown('<div class="state-picker-marker"></div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="state-picker-eyebrow">Start here · choose a state</div>',
