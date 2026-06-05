@@ -967,38 +967,22 @@ st.markdown(
 st.markdown(
     """
     <style>
-      /* Border lives on the wrapper element that st.container(border=True) renders.
-         When a key is set, Streamlit puts .st-key-<key> on a descendant; we
-         match the wrapper that contains it. */
-      /* Outer wrapper carries the visible border + background. */
-      [data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-state_picker_card) {
+      /* Border + background go on the inner content block directly. This is
+         the element Streamlit assigns .st-key-state_picker_card to, and it
+         already has padding we can override. Putting the border here (not on
+         the outer wrapper) avoids the wrapper:has() targeting going stale. */
+      .st-key-state_picker_card {
         border: 3px solid #085eaa !important;
         border-radius: 12px !important;
         background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
         box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
-        padding: 0 !important;
+        padding: 1.25rem 1.5rem 1.5rem 1.5rem !important;
       }
-      /* Inner block carries the actual content padding. NO border on this
-         layer or we'd double up. */
-      .st-key-state_picker_card {
+      /* Also strip border off the outer wrapper so we don't double-paint. */
+      [data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-state_picker_card) {
         border: none !important;
-        outline: none !important;
         background: transparent !important;
-        padding: 1.4rem 1.5rem !important;
-        gap: 0.55rem !important;
-      }
-      /* Each Streamlit element wrapper inside the card — flatten its own
-         spacing so the only top/bottom space comes from the card's padding. */
-      .st-key-state_picker_card > div,
-      .st-key-state_picker_card > div[data-testid="stElementContainer"] {
-        margin: 0 !important;
-        padding: 0 !important;
-      }
-      /* The stMarkdown element default has bottom margin. Clobber it. */
-      .st-key-state_picker_card [data-testid="stMarkdown"],
-      .st-key-state_picker_card [data-testid="stMarkdown"] > div,
-      .st-key-state_picker_card [data-testid="stMarkdown"] p {
-        margin: 0 !important;
+        box-shadow: none !important;
         padding: 0 !important;
       }
       .state-picker-marker { display: none; }
@@ -1008,10 +992,10 @@ st.markdown(
         letter-spacing: 0.14em;
         color: #085eaa;
         text-transform: uppercase;
-        margin-bottom: 0.4rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        margin: 0 0 0.25rem 0;
       }
       .state-picker-eyebrow::before {
         content: "1";
@@ -1030,9 +1014,9 @@ st.markdown(
       .state-picker-hint {
         font-size: 0.7rem;
         color: #a0a4a8;
-        margin: 0 !important;
         font-weight: 400;
         line-height: 1.3;
+        margin: 0.35rem 0 0.6rem 0;
       }
     </style>
     """,
