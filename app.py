@@ -430,24 +430,27 @@ st.markdown(
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
 
-      /* ---------- Typography ---------- */
-      html, body, .stApp,
-      .stMarkdown, .stMetric, .stDataFrame, .stSelectbox, .stMultiSelect,
-      .stRadio, .stCheckbox, .stButton button, h1, h2, h3, h4, h5, h6,
-      [data-testid="stMetricLabel"], [data-testid="stMetricValue"],
-      [data-testid="stMetricDelta"], [data-testid="stCaptionContainer"],
-      [data-baseweb="select"] *, [data-baseweb="input"] *,
-      [data-baseweb="tab"], [data-testid="stSidebar"] * {
+      /* ---------- Typography: Poppins everywhere ---------- */
+      /* Cast wide and force inheritance so deep Streamlit/baseweb internals
+         (tab labels, dialog titles, button text, dataframe cells, etc.) all
+         resolve to Poppins. */
+      html, body, .stApp, .stApp *,
+      [data-baseweb] *, [data-testid] *,
+      button, input, textarea, select, label, p, span, div, a,
+      h1, h2, h3, h4, h5, h6 {
         font-family: 'Poppins', system-ui, sans-serif !important;
       }
-      /* Preserve Material Symbols icon glyphs */
+      /* Restore Material Symbols icon glyphs that would otherwise be
+         clobbered by the rule above. */
       [class*="material-symbols"], [class*="material-icons"],
+      [class*="material-symbols"] *, [class*="material-icons"] *,
       .material-symbols-outlined, .material-symbols-rounded,
       .material-icons, span[role="img"][class*="icon"],
       [data-baseweb="icon"], [data-baseweb="icon"] *,
       [data-testid="stIcon"], [data-testid="stIcon"] *,
       [data-testid="stIconMaterial"], [data-testid="stIconMaterial"] *,
       [data-testid="stExpanderIcon"], [data-testid="stExpanderIcon"] *,
+      [data-testid="stSelectboxVirtualDropdown"] svg *,
       span[translate="no"] {
         font-family: 'Material Symbols Outlined', 'Material Symbols Rounded',
                      'Material Icons' !important;
