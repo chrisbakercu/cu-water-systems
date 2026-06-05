@@ -970,29 +970,36 @@ st.markdown(
       /* Border lives on the wrapper element that st.container(border=True) renders.
          When a key is set, Streamlit puts .st-key-<key> on a descendant; we
          match the wrapper that contains it. */
-      /* The .st-key-state_picker_card class lands on the INNER vertical
-         block — that's where Streamlit actually puts the border, padding,
-         and flex gap. Style it directly. */
-      .st-key-state_picker_card {
+      /* Outer wrapper carries the visible border + background. */
+      [data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-state_picker_card) {
         border: 3px solid #085eaa !important;
         border-radius: 12px !important;
         background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
         box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
-        padding: 1.2rem 1.5rem !important;
-        gap: 0.4rem !important;
-      }
-      /* Also style the outer wrapper in case Streamlit ever rearranges
-         which element gets the visible border. */
-      [data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-state_picker_card) {
-        border: 3px solid #085eaa !important;
-        border-radius: 12px !important;
-        background: transparent !important;
-        box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
         padding: 0 !important;
       }
-      /* Kill the inner gray default border that doubles up with our blue one. */
+      /* Inner block carries the actual content padding. NO border on this
+         layer or we'd double up. */
       .st-key-state_picker_card {
+        border: none !important;
         outline: none !important;
+        background: transparent !important;
+        padding: 1.4rem 1.5rem !important;
+        gap: 0.55rem !important;
+      }
+      /* Each Streamlit element wrapper inside the card — flatten its own
+         spacing so the only top/bottom space comes from the card's padding. */
+      .st-key-state_picker_card > div,
+      .st-key-state_picker_card > div[data-testid="stElementContainer"] {
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      /* The stMarkdown element default has bottom margin. Clobber it. */
+      .st-key-state_picker_card [data-testid="stMarkdown"],
+      .st-key-state_picker_card [data-testid="stMarkdown"] > div,
+      .st-key-state_picker_card [data-testid="stMarkdown"] p {
+        margin: 0 !important;
+        padding: 0 !important;
       }
       .state-picker-marker { display: none; }
       .state-picker-eyebrow {
