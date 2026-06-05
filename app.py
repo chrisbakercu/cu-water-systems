@@ -52,6 +52,7 @@ st.set_page_config(
     page_title="CU Water Systems",
     page_icon="💧",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 # --- CU brand ---------------------------------------------------------------
@@ -862,33 +863,39 @@ if not available:
     )
     st.stop()
 
-with st.sidebar:
-    st.header("States")
-    for s in available:
-        st.session_state.setdefault(f"state_{s}", True)
-    selected_states = [s for s in available if st.checkbox(s, key=f"state_{s}")]
-    all_on = len(selected_states) == len(available)
-    if st.button(
-        "Clear all" if all_on else "Select all",
-        width="stretch",
-    ):
-        new_value = not all_on
-        for s in available:
-            st.session_state[f"state_{s}"] = new_value
-        st.rerun()
-    if not selected_states:
-        st.warning("Pick at least one state.")
-        st.stop()
-    data = load_from_parquet(tuple(selected_states))
-    manifests = load_manifests(tuple(selected_states))
-    pulled = sorted({m.get("pulled_at", "") for m in manifests.values()})
-    source_label = (
-        f"EPA Envirofacts SDWIS · {', '.join(selected_states)} · "
-        f"Last pull: {pulled[-1] if pulled else 'unknown'}"
-    )
+# --- State selector (top of page, persistent across tabs) -------------------
+STATE_NAMES = {
+    "AL": "Alabama",
+    "AR": "Arkansas",
+    "LA": "Louisiana",
+    "MS": "Mississippi",
+    "OK": "Oklahoma",
+    "TN": "Tennessee",
+    "TX": "Texas",
+}
+ALL_STATES_LABEL = "All CU states (7)"
 
-    st.divider()
-    st.header("Filters")
+state_options = [ALL_STATES_LABEL] + [
+    f"{STATE_NAMES.get(s, s)} ({s})" for s in available
+]
+state_choice = st.session_state.get("state_choice", ALL_STATES_LABEL)
+if state_choice not in state_options:
+    state_choice = ALL_STATES_LABEL
+
+if state_choice == ALL_STATES_LABEL:
+    selected_states = list(available)
+else:
+    # Extract the 2-letter code from "Arkansas (AR)"
+    code = state_choice.rsplit("(", 1)[-1].rstrip(")")
+    selected_states = [code] if code in available else list(available)
+
+data = load_from_parquet(tuple(selected_states))
+manifests = load_manifests(tuple(selected_states))
+pulled = sorted({m.get("pulled_at", "") for m in manifests.values()})
+source_label = (
+    f"EPA Envirofacts SDWIS · {', '.join(selected_states)} · "
+    f"Last pull: {pulled[-1] if pulled else 'unknown'}"
+)
 
 systems_all = data["systems"]
 violations_all = data["violations"]
@@ -935,17 +942,6 @@ st.markdown(
             border-radius:999px;
             font-size:0.78rem;
         '>
-          <span style='color:#888b8d;'>States</span>
-          &nbsp;<span style='font-weight:600;'>{state_chip}</span>
-        </span>
-        <span style='
-            background:#ffffff;
-            border:1px solid #d8e2ee;
-            color:#1f2933;
-            padding:0.35rem 0.7rem;
-            border-radius:999px;
-            font-size:0.78rem;
-        '>
           <span style='color:#888b8d;'>Last pull</span>
           &nbsp;<span style='font-weight:600;'>{pull_short}</span>
         </span>
@@ -961,29 +957,29 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-with st.sidebar:
-    counties = sorted(geo_all["county_served"].dropna().unique().tolist())
-    selected_counties = st.multiselect("County / Parish", counties, default=[])
-    only_small = st.checkbox(
-        f"Small systems only (<{SMALL_SYSTEM_THRESHOLD:,} served)", value=False
+# State picker — single dropdown, persistent across tabs via session_state.
+state_col, _spacer = st.columns([2, 5])
+with state_col:
+    picked = st.selectbox(
+        "Viewing",
+        options=state_options,
+        index=state_options.index(state_choice),
+        key="state_choice_widget",
+        label_visibility="collapsed",
+        help="Switch which state's data you're looking at. Selection is shared across all tabs.",
     )
-    only_active_cws = True
-    st.divider()
-    st.caption(
-        "Showing active community water systems. "
-        "Contact names, emails, and phone numbers are PII and only shown on "
-        "the System Detail tab."
-    )
+    if picked != state_choice:
+        st.session_state["state_choice"] = picked
+        st.rerun()
+st.session_state["state_choice"] = state_choice
 
-systems = active_cws(systems_all) if only_active_cws else systems_all.copy()
-if only_small:
-    systems = systems[systems["population_served_count"] < SMALL_SYSTEM_THRESHOLD]
-if selected_counties:
-    parish_pwsids = geo_all[geo_all["county_served"].isin(selected_counties)][
-        "pwsid"
-    ].unique()
-    systems = systems[systems["pwsid"].isin(parish_pwsids)]
+st.caption(
+    "Showing active community water systems. Contact details are PII — "
+    "handle per CU confidentiality rules."
+)
 
+# Apply default scope: active community water systems only.
+systems = active_cws(systems_all)
 filtered_pwsids = set(systems["pwsid"])
 violations = violations_all[violations_all["pwsid"].isin(filtered_pwsids)]
 lcr = lcr_all[lcr_all["pwsid"].isin(filtered_pwsids)]
