@@ -1157,45 +1157,7 @@ def show_county_dialog(fips: str, by_county_df, geo_exp_df) -> None:
         st.rerun()
 
 
-# Global search: type system name or PWSID from any tab to open the modal.
-search_pool = (
-    systems_all[["pwsid", "pws_name", "primacy_agency_code", "city_name"]]
-    .dropna(subset=["pwsid", "pws_name"])
-    .drop_duplicates("pwsid")
-    .sort_values("pws_name")
-)
-search_pool["label"] = (
-    search_pool["pws_name"].astype(str)
-    + " — "
-    + search_pool["pwsid"].astype(str)
-    + " ("
-    + search_pool["primacy_agency_code"].astype(str).fillna("")
-    + ")"
-)
-search_options = search_pool["pwsid"].tolist()
-search_index = {p: l for p, l in zip(search_options, search_pool["label"])}
-
-with st.container(border=True):
-    st.markdown(
-        "<div style='font-size:0.75rem;font-weight:600;letter-spacing:0.08em;"
-        "color:#085eaa;text-transform:uppercase;margin-bottom:0.35rem;'>"
-        "Find a system</div>",
-        unsafe_allow_html=True,
-    )
-    picked = st.selectbox(
-        "Search by system name or PWSID",
-        options=search_options,
-        index=None,
-        placeholder="Type a system name or PWSID…",
-        format_func=lambda p: search_index.get(p, p),
-        label_visibility="collapsed",
-        key="global_search",
-    )
-    if picked:
-        _deferred_system_open = picked
-        st.session_state["global_search"] = None
-    else:
-        _deferred_system_open = None
+_deferred_system_open = None  # Used by the Find a System tab to open the detail.
 
 # ---------------------------------------------------------------------------
 # Pre-compute county-level aggregates so every tab can drive the county dialog.
@@ -1457,8 +1419,8 @@ with tab_watchlist:
 with tab_detail:
     section(
         "Find a system",
-        "Use the state checkboxes in the sidebar to scope the list, then pick a "
-        "system below. The full record loads right beneath the dropdown.",
+        "Pick a system below — the full record loads right beneath the dropdown. "
+        "Switch states using the picker at the top of the page.",
     )
 
     pws_list = (
@@ -1468,7 +1430,7 @@ with tab_detail:
         .sort_values("pws_name")
     )
     if pws_list.empty:
-        st.warning("No systems match the current sidebar selection.")
+        st.warning("No systems match the current selection. Try a different state at the top of the page.")
     else:
         pws_list["label"] = (
             pws_list["pwsid"].astype(str) + " — " + pws_list["pws_name"].astype(str)
