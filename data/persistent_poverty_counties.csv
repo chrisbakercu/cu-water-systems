@@ -1,0 +1,39 @@
+fips,state,county
+# =============================================================================
+# Persistent Poverty Counties — USDA ERS designation
+# =============================================================================
+#
+# This is a STARTER FILE. Replace it with the latest USDA list when convenient.
+#
+# Source: https://www.ers.usda.gov/data-products/county-economic-types/
+#   Download the "County Typology Codes" Excel file. The PPC indicator is a
+#   yes/no column. Filter to value = 1 (or "Yes"), copy the 5-digit FIPS
+#   codes into the `fips` column below, save as CSV. Drop the comment lines
+#   if your editor doesn't tolerate them — enrich.py also accepts a plain
+#   FIPS list with no header beyond "fips".
+#
+# Definition: a county is "persistently poor" if 20%+ of residents lived
+# below the poverty line in the 1980, 1990, and 2000 decennial censuses
+# AND the most recent ACS 5-year period. ~340 US counties qualify.
+#
+# Only counties in CU's 7 states (AL, AR, LA, MS, OK, TN, TX) need to be
+# listed here — others are ignored when joined.
+#
+# A small starter set of well-documented examples is included below. The
+# dashboard will fall back to the "current high-poverty (20%+)" flag —
+# computed live from ACS — for any county not on this list, so the system
+# still works even with this file empty.
+# =============================================================================
+01085,AL,Lowndes
+01087,AL,Macon
+01131,AL,Wilcox
+05107,AR,Phillips
+05077,AR,Lee
+22035,LA,East Carroll
+22107,LA,Tensas
+28055,MS,Issaquena
+28125,MS,Sharkey
+28053,MS,Humphreys
+40089,OK,McCurtain
+47095,TN,Lake
+48427,TX,Starr

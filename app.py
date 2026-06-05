@@ -16,6 +16,7 @@ import streamlit as st
 ROOT = Path(__file__).parent
 PARQUET_DIR = ROOT / "data"
 FIPS_FILE = PARQUET_DIR / "national_county2020.txt"
+COUNTY_CONTEXT_FILE = PARQUET_DIR / "county_context.parquet"
 SMALL_SYSTEM_THRESHOLD = 3300
 LCR_ACTION_LEVEL_PPB = 15
 
@@ -102,6 +103,91 @@ def _safe_int(value) -> int:
         return 0
 
 
+def _render_service_area_context(pwsid: str) -> None:
+    """Show Census ACS + persistent-poverty context for the counties this system serves.
+
+    Quietly does nothing if the enrichment parquet hasn't been built or the
+    system has no matched county.
+    """
+    ctx = load_county_context()
+    if ctx.empty:
+        return
+
+    # Map this pwsid to the counties it serves via the cached geo explode.
+    served = geo_exp[geo_exp["pwsid"] == pwsid][["fips5", "county_display", "primacy_agency_code"]]
+    if served.empty:
+        return
+
+    rows = served.merge(ctx, on="fips5", how="left", suffixes=("", "_ctx"))
+    rows = rows.dropna(subset=["total_population"])
+    if rows.empty:
+        return
+
+    any_ppc = bool(rows["persistent_poverty"].fillna(False).any())
+    any_high = bool(rows["high_poverty_current"].fillna(False).any())
+
+    flag_html = ""
+    if any_ppc:
+        flag_html = (
+            "<span style='background:#fbe9e7;color:#a32c14;border:1px solid #f4c5b5;"
+            "padding:0.2rem 0.55rem;border-radius:999px;font-size:0.72rem;"
+            "font-weight:600;letter-spacing:0.04em;margin-left:0.5rem;'>"
+            "Persistent poverty</span>"
+        )
+    elif any_high:
+        flag_html = (
+            "<span style='background:#fff4e0;color:#8a5a00;border:1px solid #f1d8a3;"
+            "padding:0.2rem 0.55rem;border-radius:999px;font-size:0.72rem;"
+            "font-weight:600;letter-spacing:0.04em;margin-left:0.5rem;'>"
+            "High current poverty</span>"
+        )
+
+    header = (
+        "<div style='font-size:0.75rem;font-weight:600;letter-spacing:0.08em;"
+        "color:#888b8d;text-transform:uppercase;margin:1rem 0 0.5rem 0;'>"
+        f"Service area context{flag_html}</div>"
+    )
+    st.markdown(header, unsafe_allow_html=True)
+
+    def _fmt_pct(v: float | None) -> str:
+        return f"{v * 100:.1f}%" if pd.notna(v) else "—"
+
+    def _fmt_money(v) -> str:
+        return f"${int(v):,}" if pd.notna(v) and v else "—"
+
+    def _fmt_pop(v) -> str:
+        return f"{int(v):,}" if pd.notna(v) else "—"
+
+    table_rows = []
+    for _, r in rows.iterrows():
+        badges = []
+        if bool(r.get("persistent_poverty")):
+            badges.append("PPC")
+        if bool(r.get("high_poverty_current")) and "PPC" not in badges:
+            badges.append("High poverty")
+        badge_str = ", ".join(badges) if badges else "—"
+        table_rows.append({
+            "County": f"{r['county_display']}, {r['primacy_agency_code']}",
+            "Population": _fmt_pop(r["total_population"]),
+            "Poverty rate": _fmt_pct(r["poverty_rate"]),
+            "Median HH income": _fmt_money(r["median_hh_income"]),
+            "Flags": badge_str,
+        })
+
+    ctx_df = pd.DataFrame(table_rows)
+    st.dataframe(
+        ctx_df,
+        width="stretch",
+        hide_index=True,
+        column_config={col: st.column_config.TextColumn(col) for col in ctx_df.columns},
+    )
+    st.caption(
+        "Census ACS 5-year estimates. Persistent-poverty flag from USDA ERS "
+        "(20%+ poverty in 1980, 1990, 2000 censuses and most recent ACS). "
+        "'High current poverty' = current ACS rate ≥ 20%."
+    )
+
+
 def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     """Render the full system detail block — used by Find a System tab + modal."""
     matches = systems_df[systems_df["pwsid"] == pwsid]
@@ -167,6 +253,8 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     addr_full = (f"{addr}  \n" if addr else "") + f"{city}, {state_code} {zip_code}"
     st.markdown("**Mailing address**")
     st.write(addr_full)
+
+    _render_service_area_context(pwsid)
 
     pws_type = _safe_str(row.get("pws_type_code"))
     src_code = _safe_str(row.get("primary_source_code"))
@@ -664,6 +752,25 @@ def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
             if c in df.columns:
                 df[c] = df[c].astype("category")
     return frames
+
+
+@st.cache_data(max_entries=1)
+def load_county_context() -> pd.DataFrame:
+    """Census ACS + USDA persistent-poverty context, keyed by fips5.
+
+    Empty DataFrame with the expected columns if the parquet hasn't been built.
+    """
+    cols = [
+        "fips5", "state", "county_display", "total_population",
+        "poverty_rate", "median_hh_income",
+        "high_poverty_current", "persistent_poverty",
+    ]
+    if not COUNTY_CONTEXT_FILE.exists():
+        return pd.DataFrame(columns=cols)
+    df = pd.read_parquet(COUNTY_CONTEXT_FILE)
+    # Ensure consistent fips5 padding
+    df["fips5"] = df["fips5"].astype(str).str.zfill(5)
+    return df
 
 
 @st.cache_data
