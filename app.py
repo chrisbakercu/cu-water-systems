@@ -59,7 +59,7 @@ st.set_page_config(
 CU_PRIMARY = "#085eaa"
 CU_SECONDARY = "#66b1e2"
 CU_TERTIARY = "#0088ce"
-CU_GRAY = "#888b8d"
+CU_GRAY = "#6b7280"
 CU_BLUE_SCALE = ["#f4f7fb", "#66b1e2", "#0088ce", "#085eaa"]
 CU_QUALITATIVE = [CU_PRIMARY, CU_TERTIARY, CU_SECONDARY, CU_GRAY, "#1f2933"]
 
@@ -134,8 +134,8 @@ def _render_service_area_context(pwsid: str) -> None:
         )
 
     header = (
-        "<div style='font-size:0.75rem;font-weight:600;letter-spacing:0.08em;"
-        "color:#888b8d;text-transform:uppercase;margin:1rem 0 0.5rem 0;'>"
+        "<div style='font-size:0.72rem;font-weight:700;letter-spacing:0.14em;"
+        "color:#085eaa;text-transform:uppercase;margin:1rem 0 0.5rem 0;'>"
         f"Service area context{flag_html}</div>"
     )
     st.markdown(header, unsafe_allow_html=True)
@@ -189,7 +189,7 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
 
     st.markdown(
         f"### {_safe_str(row['pws_name'])}  \n"
-        f"<span style='color:#888b8d;font-size:0.9rem;'>"
+        f"<span style='color:#6b7280;font-size:0.875rem;'>"
         f"{_safe_str(row['pwsid'])} · {_safe_str(row.get('city_name', ''))}, "
         f"{_safe_str(row.get('state_code', ''))}</span>",
         unsafe_allow_html=True,
@@ -204,15 +204,15 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     email_html = (
         f"<a href='mailto:{email}' style='color:#085eaa;text-decoration:none;'>{email}</a>"
         if email and email != "—"
-        else "<span style='color:#888b8d;'>Not on file</span>"
+        else "<span style='color:#6b7280;'>Not on file</span>"
     )
     phone_html = (
         f"<a href='tel:{phone}' style='color:#085eaa;text-decoration:none;'>{phone}</a>"
         if phone and phone != "—"
-        else "<span style='color:#888b8d;'>Not on file</span>"
+        else "<span style='color:#6b7280;'>Not on file</span>"
     )
     alt_phone_html = (
-        f" · <span style='color:#888b8d;'>alt</span> "
+        f" · <span style='color:#6b7280;'>alt</span> "
         f"<a href='tel:{alt_phone}' style='color:#085eaa;text-decoration:none;'>{alt_phone}</a>"
         if alt_phone else ""
     )
@@ -222,16 +222,16 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
         <div style='background:#ffffff;border:1px solid #d8e2ee;border-left:4px solid #085eaa;
             border-radius:8px;padding:1.25rem 1.5rem;margin:0.5rem 0 1.25rem 0;
             box-shadow:0 1px 2px rgba(8,94,170,0.05);'>
-          <div style='font-size:0.75rem;font-weight:600;letter-spacing:0.08em;
-              color:#888b8d;text-transform:uppercase;margin-bottom:0.5rem;'>Operator contact</div>
-          <div style='font-size:1.15rem;font-weight:600;color:#1f2933;'>{admin}</div>
-          <div style='color:#888b8d;margin-bottom:0.85rem;'>{org}</div>
-          <div style='display:flex;flex-wrap:wrap;gap:1.5rem;font-size:0.95rem;'>
-            <div><div style='color:#888b8d;font-size:0.8rem;'>Email</div><div>{email_html}</div></div>
-            <div><div style='color:#888b8d;font-size:0.8rem;'>Phone</div><div>{phone_html}{alt_phone_html}</div></div>
+          <div style='font-size:0.72rem;font-weight:700;letter-spacing:0.14em;
+              color:#085eaa;text-transform:uppercase;margin-bottom:0.5rem;'>Operator contact</div>
+          <div style='font-size:1.1rem;font-weight:600;color:#1f2933;'>{admin}</div>
+          <div style='color:#6b7280;font-size:0.875rem;margin-bottom:0.85rem;'>{org}</div>
+          <div style='display:flex;flex-wrap:wrap;gap:1.5rem;font-size:1rem;'>
+            <div><div style='color:#6b7280;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.15rem;'>Email</div><div>{email_html}</div></div>
+            <div><div style='color:#6b7280;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.15rem;'>Phone</div><div>{phone_html}{alt_phone_html}</div></div>
           </div>
           <div style='margin-top:0.85rem;padding-top:0.75rem;border-top:1px solid #f0f2f5;
-              font-size:0.75rem;color:#888b8d;'>PII — handle per CU confidentiality rules.</div>
+              font-size:0.75rem;color:#6b7280;'>PII — handle per CU confidentiality rules.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -295,12 +295,12 @@ def section(title: str, subtitle: str | None = None) -> None:
         f"""
         <div style='margin: 0.75rem 0 0.5rem 0;'>
           <div style='
-              font-size:1.05rem;
+              font-size:1.1rem;
               font-weight:600;
               color:#085eaa;
               letter-spacing:-0.005em;
           '>{title}</div>
-          {f"<div style='color:#6b7280;font-size:0.85rem;margin-top:0.15rem;'>{subtitle}</div>" if subtitle else ""}
+          {f"<div style='color:#6b7280;font-size:0.875rem;margin-top:0.15rem;'>{subtitle}</div>" if subtitle else ""}
         </div>
         """,
         unsafe_allow_html=True,
@@ -350,7 +350,7 @@ def _password_gate() -> None:
           }
           .login-help {
             color: #6b7280;
-            font-size: 0.9rem;
+            font-size: 0.875rem;
             margin-bottom: 1.25rem;
           }
           /* Big, obvious password input */
@@ -457,9 +457,13 @@ st.markdown(
       }
       body, .stApp { color: #1f2933; }
       h1, h2, h3 { color: #085eaa; font-weight: 600; letter-spacing: -0.01em; }
+      h1 { font-size: 2rem; }
       h2 { font-size: 1.35rem; margin-top: 0.5rem; }
       h3 { font-size: 1.1rem; }
-      [data-testid="stCaptionContainer"], .stCaption { color: #6b7280 !important; }
+      [data-testid="stCaptionContainer"], .stCaption {
+        color: #6b7280 !important;
+        font-size: 0.875rem !important;
+      }
       hr { border-color: #e5eaf2 !important; }
 
       /* ---------- App container ---------- */
@@ -507,7 +511,7 @@ st.markdown(
         padding: 0.55rem 1rem !important;
         background: transparent;
         border-radius: 6px 6px 0 0;
-        color: #52606d;
+        color: #6b7280;
         font-weight: 500;
         transition: color 0.15s, background 0.15s;
       }
@@ -549,7 +553,7 @@ st.markdown(
         font-size: 1.65rem !important;
         line-height: 1.1;
       }
-      [data-testid="stMetricDelta"] { font-size: 0.8rem !important; }
+      [data-testid="stMetricDelta"] { font-size: 0.75rem !important; }
 
       /* ---------- Sidebar ---------- */
       [data-testid="stSidebar"] {
@@ -567,8 +571,8 @@ st.markdown(
         margin-bottom: 0.5rem;
       }
       [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
-        color: #888b8d !important;
-        font-size: 0.78rem !important;
+        color: #6b7280 !important;
+        font-size: 0.875rem !important;
       }
       [data-testid="stSidebar"] hr { margin: 1.25rem 0; }
 
@@ -923,17 +927,18 @@ st.markdown(
       <div>
         <div style='
             font-size:0.72rem;
-            font-weight:600;
+            font-weight:700;
             letter-spacing:0.14em;
             color:#0088ce;
             text-transform:uppercase;
             margin-bottom:0.15rem;
         '>Communities Unlimited</div>
         <div style='
-            font-size:1.75rem;
+            font-size:2rem;
             font-weight:600;
             color:#085eaa;
             line-height:1.1;
+            letter-spacing:-0.01em;
         '>Water Systems</div>
       </div>
       <div style='display:flex;gap:0.6rem;align-items:center;'>
@@ -943,16 +948,16 @@ st.markdown(
             color:#1f2933;
             padding:0.35rem 0.7rem;
             border-radius:999px;
-            font-size:0.78rem;
+            font-size:0.75rem;
         '>
-          <span style='color:#888b8d;'>Last pull</span>
+          <span style='color:#6b7280;'>Last pull</span>
           &nbsp;<span style='font-weight:600;'>{pull_short}</span>
         </span>
       </div>
     </div>
     <div style='
-        color:#888b8d;
-        font-size:0.82rem;
+        color:#6b7280;
+        font-size:0.875rem;
         margin-top:-0.5rem;
         margin-bottom:0.75rem;
     '>EPA Envirofacts SDWIS · Federal feed may lag state viewers by ~1 quarter.</div>
@@ -1012,8 +1017,8 @@ st.markdown(
         letter-spacing: 0;
       }
       .state-picker-hint {
-        font-size: 0.7rem;
-        color: #a0a4a8;
+        font-size: 0.75rem;
+        color: #6b7280;
         font-weight: 400;
         line-height: 1.3;
         margin: 0.35rem 0 0.6rem 0;
@@ -1133,7 +1138,7 @@ def show_county_dialog(fips: str, by_county_df, geo_exp_df) -> None:
     })
 
     st.markdown(
-        "<div style='font-size:0.85rem;color:#888b8d;margin:0.5rem 0 0.25rem 0;'>"
+        "<div style='font-size:0.875rem;color:#6b7280;margin:0.5rem 0 0.25rem 0;'>"
         "Check a row to open the system detail.</div>",
         unsafe_allow_html=True,
     )
