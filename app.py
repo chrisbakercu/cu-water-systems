@@ -977,12 +977,18 @@ st.markdown(
         border-radius: 12px !important;
         background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
         box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
-        padding: 1.25rem 1.5rem !important;
+        padding: 1rem 1.5rem 1.1rem 1.5rem !important;
       }
       /* Even out the inner stack — Streamlit's default vertical gap is uneven
          after our markdown blocks. */
       .st-key-state_picker_card [data-testid="stVerticalBlock"] {
-        gap: 0.5rem !important;
+        gap: 0.4rem !important;
+      }
+      /* The first element wrapper inside the container has its own top spacing —
+         flatten it so the eyebrow sits cleanly at the top. */
+      .st-key-state_picker_card [data-testid="stVerticalBlock"] > div:first-child {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
       }
       /* Fallback: if the key trick fails, this still styles the whole column
          that wraps the picker. */
@@ -991,7 +997,7 @@ st.markdown(
         border-radius: 12px !important;
         background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
         box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
-        padding: 1.25rem 1.5rem !important;
+        padding: 1rem 1.5rem 1.1rem 1.5rem !important;
       }
       .state-picker-marker { display: none; }
       .state-picker-eyebrow {
