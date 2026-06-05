@@ -1394,17 +1394,21 @@ with tab_lcr:
         f"{int(mask_never.sum()):,}" if include_never else "—",
     )
 
-    display = flagged.rename(
-        columns={
-            "pwsid": "PWSID",
-            "pws_name": "System",
-            "primacy_agency_code": "State",
-            "population_served_count": "Population",
-            "last_sample": "Last sample",
-            "years_since": "Years since",
-            "status": "Status",
-        }
-    )[["PWSID", "System", "State", "Population", "Last sample", "Years since", "Status"]]
+    display = pd.DataFrame({
+        "PWSID": flagged["pwsid"].astype(str).values,
+        "System": flagged["pws_name"].astype(str).values,
+        "State": flagged["primacy_agency_code"].astype(str).values,
+        "Population": flagged["population_served_count"].apply(
+            lambda v: f"{int(v):,}" if pd.notna(v) else "—"
+        ).values,
+        "Last sample": flagged["last_sample"].apply(
+            lambda d: d.strftime("%Y-%m-%d") if pd.notna(d) else "—"
+        ).values,
+        "Years since": flagged["years_since"].apply(
+            lambda v: f"{v:.1f}" if pd.notna(v) else "—"
+        ).values,
+        "Status": flagged["status"].astype(str).values,
+    })
 
     st.caption("Check a row to open the system detail.")
     sel_lcr = st.dataframe(
@@ -1415,9 +1419,7 @@ with tab_lcr:
         selection_mode="single-row",
         key="lcr_lapsed_table",
         column_config={
-            "Years since": st.column_config.NumberColumn(format="%.1f"),
-            "Last sample": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            "Population": st.column_config.NumberColumn(format="%,d"),
+            col: st.column_config.TextColumn(col) for col in display.columns
         },
     )
     rows = (sel_lcr or {}).get("selection", {}).get("rows", [])
