@@ -1229,33 +1229,21 @@ with tab_watchlist:
         watch = watch.drop(columns=["county_served"])
     watch = watch.merge(parish, on="pwsid", how="left")
 
-    watch_display = (
-        watch[
-            [
-                "primacy_agency_code",
-                "pwsid",
-                "pws_name",
-                "county_served",
-                "population_served_count",
-                "service_connections_count",
-                "open_health_violations",
-                "priority_score",
-            ]
-        ]
-        .sort_values("priority_score", ascending=False)
-        .rename(
-            columns={
-                "primacy_agency_code": "State",
-                "pwsid": "PWSID",
-                "pws_name": "System",
-                "county_served": "Parish / county",
-                "population_served_count": "Population",
-                "service_connections_count": "Connections",
-                "open_health_violations": "Open health-based viols.",
-                "priority_score": "Priority",
-            }
-        )
-    )
+    watch_sorted = watch.sort_values("priority_score", ascending=False)
+
+    def _fmt_int(v) -> str:
+        return f"{int(v):,}" if pd.notna(v) else "—"
+
+    watch_display = pd.DataFrame({
+        "State": watch_sorted["primacy_agency_code"].astype(str).values,
+        "PWSID": watch_sorted["pwsid"].astype(str).values,
+        "System": watch_sorted["pws_name"].astype(str).values,
+        "Parish / county": watch_sorted["county_served"].fillna("—").astype(str).values,
+        "Population": watch_sorted["population_served_count"].apply(_fmt_int).values,
+        "Connections": watch_sorted["service_connections_count"].apply(_fmt_int).values,
+        "Open health-based viols.": watch_sorted["open_health_violations"].apply(_fmt_int).values,
+        "Priority": watch_sorted["priority_score"].apply(_fmt_int).values,
+    })
 
     st.metric("Systems on watchlist", f"{len(watch_display):,}")
     st.caption("Check a row to open the system detail.")
@@ -1266,6 +1254,9 @@ with tab_watchlist:
         on_select="rerun",
         selection_mode="single-row",
         key="watchlist_table",
+        column_config={
+            col: st.column_config.TextColumn(col) for col in watch_display.columns
+        },
     )
     rows = (sel_watch or {}).get("selection", {}).get("rows", [])
     if rows:
