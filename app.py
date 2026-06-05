@@ -1123,8 +1123,10 @@ with st.container(border=True):
         key="global_search",
     )
     if picked:
-        show_system_dialog(picked)
+        _deferred_system_open = picked
         st.session_state["global_search"] = None
+    else:
+        _deferred_system_open = None
 
 # Route ?system=...&county=... links from Details columns into the modal flow.
 _qp = st.query_params
@@ -1140,14 +1142,9 @@ if _qp_system or _qp_county:
     if _qp_county and not _qp_system:
         st.session_state["pending_county_modal"] = _qp_county
 
-# Pending modal trigger from drill-down clicks
-pending = st.session_state.pop("open_system_modal", None)
-back_fips = st.session_state.pop("system_modal_back", None)
-if pending:
-    show_system_dialog(pending, back_county_fips=back_fips)
-
 # ---------------------------------------------------------------------------
-# Pre-compute county-level aggregates so every tab can drive the county dialog
+# Pre-compute county-level aggregates so every tab can drive the county dialog.
+# Done BEFORE any dialog opens so render_system_detail can reference geo_exp.
 # ---------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, max_entries=2)
 def _county_rollup(states_key: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -1185,6 +1182,16 @@ def _county_rollup(states_key: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFr
 
 
 geo_exp, by_county = _county_rollup(tuple(selected_states))
+
+# Deferred global-search dialog (now that geo_exp exists for service-area context).
+if _deferred_system_open:
+    show_system_dialog(_deferred_system_open)
+
+# Pending modal trigger from drill-down clicks
+pending = st.session_state.pop("open_system_modal", None)
+back_fips = st.session_state.pop("system_modal_back", None)
+if pending:
+    show_system_dialog(pending, back_county_fips=back_fips)
 
 # Pending county-modal trigger (e.g. "Back to county" from a system dialog)
 _pending_county = st.session_state.pop("pending_county_modal", None)
