@@ -1279,37 +1279,37 @@ with tab_watchlist:
 with tab_detail:
     section(
         "Find a system",
-        "Pick a state, then a system. The full record opens in a popup. "
-        "Or use the search at the top of the page from any tab.",
+        "Use the state checkboxes in the sidebar to scope the list, then pick a "
+        "system below. The full record loads right beneath the dropdown.",
     )
 
-    state_options = sorted(systems_all["primacy_agency_code"].dropna().unique().tolist())
-    if not state_options:
-        st.warning("No systems available.")
-        st.stop()
-
-    with st.container(border=True):
-        col_state, col_system = st.columns([1, 3])
-        with col_state:
-            state_choice = st.selectbox("**State**", state_options, index=0)
-
-        state_systems = systems_all[systems_all["primacy_agency_code"] == state_choice]
-        pws_list = state_systems[["pwsid", "pws_name"]].dropna().drop_duplicates()
-        pws_list = pws_list.sort_values("pws_name")
-        pws_list["label"] = pws_list["pwsid"] + " — " + pws_list["pws_name"]
+    pws_list = (
+        systems[["pwsid", "pws_name"]]
+        .dropna()
+        .drop_duplicates("pwsid")
+        .sort_values("pws_name")
+    )
+    if pws_list.empty:
+        st.warning("No systems match the current sidebar selection.")
+    else:
+        pws_list["label"] = (
+            pws_list["pwsid"].astype(str) + " — " + pws_list["pws_name"].astype(str)
+        )
+        label_map = dict(zip(pws_list["pwsid"], pws_list["label"]))
         options = pws_list["pwsid"].tolist()
-        with col_system:
-            choice = st.selectbox(
-                "**System**",
-                options=options,
-                index=None,
-                placeholder="Type or scroll…",
-                format_func=lambda p: pws_list.set_index("pwsid").loc[p, "label"],
-                key="find_system_picker",
-            )
-        if choice and st.session_state.get("find_system_last") != choice:
-            st.session_state["find_system_last"] = choice
-            show_system_dialog(choice)
+
+        choice = st.selectbox(
+            "**System**",
+            options=options,
+            index=None,
+            placeholder=f"Type or scroll — {len(options):,} systems",
+            format_func=lambda p: label_map.get(p, p),
+            key="find_system_picker",
+        )
+
+        if choice:
+            st.divider()
+            render_system_detail(choice, systems_all, violations_all, lcr_all)
 
 
 # --- Lead & Copper ------------------------------------------------------------
