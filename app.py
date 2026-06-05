@@ -1247,9 +1247,12 @@ with tab_watchlist:
 
     st.metric("Systems on watchlist", f"{len(watch_display):,}")
     st.caption("Check a row to open the system detail.")
+    # ~35px per row + 38px header. Show up to 100 rows tall before the page itself scrolls.
+    _row_count = min(len(watch_display), 100)
     sel_watch = st.dataframe(
         watch_display.reset_index(drop=True),
         width="stretch",
+        height=max(_row_count * 35 + 38, 200),
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
