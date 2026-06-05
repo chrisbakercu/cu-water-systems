@@ -958,19 +958,77 @@ st.markdown(
 )
 
 # State picker — single dropdown, persistent across tabs via session_state.
-state_col, _spacer = st.columns([2, 5])
-with state_col:
-    picked = st.selectbox(
-        "Viewing",
-        options=state_options,
-        index=state_options.index(state_choice),
-        key="state_choice_widget",
-        label_visibility="collapsed",
-        help="Switch which state's data you're looking at. Selection is shared across all tabs.",
-    )
-    if picked != state_choice:
-        st.session_state["state_choice"] = picked
-        st.rerun()
+# Styled as a prominent "start here" control so new users orient quickly.
+st.markdown(
+    """
+    <style>
+      div[data-testid="stVerticalBlockBorderWrapper"]:has(> div > div > .state-picker-marker) {
+        border: 2px solid #085eaa !important;
+        border-radius: 12px !important;
+        background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
+        box-shadow: 0 2px 8px rgba(8,94,170,0.10) !important;
+        padding: 0.25rem 0.5rem 0.25rem 0.5rem !important;
+      }
+      .state-picker-eyebrow {
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        color: #085eaa;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+      .state-picker-eyebrow::before {
+        content: "1";
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.4rem;
+        height: 1.4rem;
+        background: #085eaa;
+        color: #ffffff;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+      .state-picker-hint {
+        font-size: 0.78rem;
+        color: #475569;
+        margin-top: 0.15rem;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+with st.container(border=True):
+    st.markdown('<div class="state-picker-marker"></div>', unsafe_allow_html=True)
+    state_col, hint_col = st.columns([2, 5])
+    with state_col:
+        st.markdown(
+            '<div class="state-picker-eyebrow">Start here · choose a state</div>',
+            unsafe_allow_html=True,
+        )
+        picked = st.selectbox(
+            "Viewing",
+            options=state_options,
+            index=state_options.index(state_choice),
+            key="state_choice_widget",
+            label_visibility="collapsed",
+            help="Selection is shared across all tabs.",
+        )
+        if picked != state_choice:
+            st.session_state["state_choice"] = picked
+            st.rerun()
+    with hint_col:
+        st.markdown(
+            '<div class="state-picker-hint">'
+            "Your pick filters every tab below. Switch states any time without losing your place."
+            "</div>",
+            unsafe_allow_html=True,
+        )
 st.session_state["state_choice"] = state_choice
 
 st.caption(
