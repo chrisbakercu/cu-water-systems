@@ -1339,40 +1339,91 @@ with tab_lcr:
         fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig, width="stretch")
 
-    section("Most recent sampling", "Top 50 systems by last sample date.")
-    recent = (
-        lcr.sort_values("sampling_end_date", ascending=False)
-        .drop_duplicates("pwsid")
-        .merge(
-            systems[["pwsid", "pws_name", "population_served_count"]],
-            on="pwsid",
-            how="left",
-        )
-        .head(50)[
-            ["pwsid", "pws_name", "population_served_count", "sampling_end_date"]
-        ]
-        .rename(
-            columns={
-                "pwsid": "PWSID",
-                "pws_name": "System",
-                "population_served_count": "Population",
-                "sampling_end_date": "Last sample",
-            }
-        )
+    section(
+        "Lapsed sampling",
+        "Active community systems whose most recent LCR sample is 3+ years old, "
+        "or that have no sample on record at all. These are CU technical-assistance "
+        "candidates — sampling gaps suggest capacity or compliance risk.",
     )
+
+    lapse_years = st.slider(
+        "Treat as lapsed when last sample is older than (years)",
+        min_value=1, max_value=10, value=3, step=1,
+    )
+    include_never = st.checkbox(
+        "Include systems with no sample on record",
+        value=True,
+        help=(
+            "Some active systems have never appeared in the LCR sampling feed. "
+            "That can mean they're newer, recently activated, or genuinely missing data."
+        ),
+    )
+
+    active = active_cws(systems)[
+        ["pwsid", "pws_name", "primacy_agency_code", "population_served_count"]
+    ].drop_duplicates("pwsid")
+
+    last_sample = (
+        lcr.dropna(subset=["sampling_end_date"])
+        .groupby("pwsid", as_index=False)["sampling_end_date"]
+        .max()
+        .rename(columns={"sampling_end_date": "last_sample"})
+    )
+
+    joined = active.merge(last_sample, on="pwsid", how="left")
+    today = pd.Timestamp.today().normalize()
+    cutoff = today - pd.DateOffset(years=lapse_years)
+    joined["years_since"] = (today - joined["last_sample"]).dt.days / 365.25
+
+    mask_lapsed = joined["last_sample"].notna() & (joined["last_sample"] < cutoff)
+    mask_never = joined["last_sample"].isna()
+    flagged = joined[mask_lapsed | (mask_never if include_never else False)].copy()
+    flagged["status"] = flagged["last_sample"].apply(
+        lambda d: "Never sampled" if pd.isna(d) else "Lapsed"
+    )
+    flagged = flagged.sort_values(
+        ["status", "years_since", "population_served_count"],
+        ascending=[True, False, False],
+    )
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Active CWS flagged", f"{len(flagged):,}")
+    c2.metric("Lapsed (have past samples)", f"{int(mask_lapsed.sum()):,}")
+    c3.metric(
+        "Never sampled",
+        f"{int(mask_never.sum()):,}" if include_never else "—",
+    )
+
+    display = flagged.rename(
+        columns={
+            "pwsid": "PWSID",
+            "pws_name": "System",
+            "primacy_agency_code": "State",
+            "population_served_count": "Population",
+            "last_sample": "Last sample",
+            "years_since": "Years since",
+            "status": "Status",
+        }
+    )[["PWSID", "System", "State", "Population", "Last sample", "Years since", "Status"]]
+
     st.caption("Check a row to open the system detail.")
     sel_lcr = st.dataframe(
-        recent.reset_index(drop=True),
+        display.reset_index(drop=True),
         width="stretch",
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
-        key="lcr_recent_table",
+        key="lcr_lapsed_table",
+        column_config={
+            "Years since": st.column_config.NumberColumn(format="%.1f"),
+            "Last sample": st.column_config.DateColumn(format="YYYY-MM-DD"),
+            "Population": st.column_config.NumberColumn(format="%,d"),
+        },
     )
     rows = (sel_lcr or {}).get("selection", {}).get("rows", [])
     if rows:
         trigger_system_modal(
-            recent.reset_index(drop=True).iloc[rows[0]]["PWSID"], "lcr_recent_last"
+            display.reset_index(drop=True).iloc[rows[0]]["PWSID"], "lcr_lapsed_last"
         )
 
 
