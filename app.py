@@ -1405,9 +1405,11 @@ with tab_lcr:
     })
 
     st.caption("Check a row to open the system detail.")
+    _lcr_rows = min(len(display), 100)
     sel_lcr = st.dataframe(
         display.reset_index(drop=True),
         width="stretch",
+        height=max(_lcr_rows * 35 + 38, 200),
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
@@ -1459,39 +1461,33 @@ with tab_violations:
         fig.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig, width="stretch")
 
-    v_display = (
-        v.merge(systems[["pwsid", "pws_name"]], on="pwsid", how="left")[
-            [
-                "pwsid",
-                "pws_name",
-                "compl_per_begin_date",
-                "violation_category_code",
-                "contaminant_code",
-                "is_health_based_ind",
-                "rtc_date",
-            ]
-        ]
-        .sort_values("compl_per_begin_date", ascending=False)
-        .rename(
-            columns={
-                "pwsid": "PWSID",
-                "pws_name": "System",
-                "compl_per_begin_date": "Begin",
-                "violation_category_code": "Category",
-                "contaminant_code": "Contaminant",
-                "is_health_based_ind": "Health-based",
-                "rtc_date": "RTC date",
-            }
-        )
-    )
+    v_joined = v.merge(systems[["pwsid", "pws_name"]], on="pwsid", how="left")
+    v_sorted = v_joined.sort_values("compl_per_begin_date", ascending=False)
+
+    def _fmt_date(d) -> str:
+        return d.strftime("%Y-%m-%d") if pd.notna(d) else "—"
+
+    v_display = pd.DataFrame({
+        "PWSID": v_sorted["pwsid"].astype(str).values,
+        "System": v_sorted["pws_name"].fillna("—").astype(str).values,
+        "Begin": v_sorted["compl_per_begin_date"].apply(_fmt_date).values,
+        "Category": v_sorted["violation_category_code"].astype(str).fillna("—").values,
+        "Contaminant": v_sorted["contaminant_code"].astype(str).fillna("—").values,
+        "Health-based": v_sorted["is_health_based_ind"].astype(str).fillna("—").values,
+        "RTC date": v_sorted["rtc_date"].apply(_fmt_date).values,
+    })
+
     st.caption("Check a row to open the system detail.")
+    _v_rows = min(len(v_display), 100)
     sel_v = st.dataframe(
         v_display.reset_index(drop=True),
         width="stretch",
+        height=max(_v_rows * 35 + 38, 200),
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
         key="violations_table",
+        column_config={col: st.column_config.TextColumn(col) for col in v_display.columns},
     )
     rows = (sel_v or {}).get("selection", {}).get("rows", [])
     if rows:
