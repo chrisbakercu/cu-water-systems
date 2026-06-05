@@ -1022,8 +1022,9 @@ st.markdown(
       .state-picker-hint {
         font-size: 0.7rem;
         color: #a0a4a8;
-        margin-top: 0.5rem;
+        margin-top: -0.25rem;
         font-weight: 400;
+        line-height: 1.3;
       }
     </style>
     """,
