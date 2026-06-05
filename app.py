@@ -970,39 +970,29 @@ st.markdown(
       /* Border lives on the wrapper element that st.container(border=True) renders.
          When a key is set, Streamlit puts .st-key-<key> on a descendant; we
          match the wrapper that contains it. */
-      [data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-state_picker_card),
-      .st-key-state_picker_card,
-      div[class*="st-key-state_picker_card"] [data-testid="stVerticalBlockBorderWrapper"] {
+      /* The .st-key-state_picker_card class lands on the INNER vertical
+         block — that's where Streamlit actually puts the border, padding,
+         and flex gap. Style it directly. */
+      .st-key-state_picker_card {
         border: 3px solid #085eaa !important;
         border-radius: 12px !important;
         background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
         box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
-        padding: 1.1rem 1.5rem !important;
-      }
-      /* Tighten the inner stack gap a touch. */
-      .st-key-state_picker_card [data-testid="stVerticalBlock"] {
+        padding: 1.2rem 1.5rem !important;
         gap: 0.4rem !important;
       }
-      /* Top: zero out the first-child's added margin/padding so the eyebrow
-         sits cleanly under the container padding. */
-      .st-key-state_picker_card [data-testid="stVerticalBlock"] > div:first-child {
-        margin-top: 0 !important;
-        padding-top: 0 !important;
-      }
-      /* Bottom: Streamlit's inner stVerticalBlock sometimes ignores the
-         outer container's padding-bottom on the last child. Force an
-         explicit breathing space on the hint itself instead. */
-      .state-picker-hint {
-        padding-bottom: 0.25rem !important;
-      }
-      /* Fallback: if the key trick fails, this still styles the whole column
-         that wraps the picker. */
-      div[data-testid="stColumn"]:first-of-type [data-testid="stVerticalBlockBorderWrapper"]:has(.state-picker-marker) {
+      /* Also style the outer wrapper in case Streamlit ever rearranges
+         which element gets the visible border. */
+      [data-testid="stVerticalBlockBorderWrapper"]:has(.st-key-state_picker_card) {
         border: 3px solid #085eaa !important;
         border-radius: 12px !important;
-        background: linear-gradient(180deg, #f4f9fd 0%, #ffffff 100%) !important;
+        background: transparent !important;
         box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
-        padding: 1.1rem 1.5rem !important;
+        padding: 0 !important;
+      }
+      /* Kill the inner gray default border that doubles up with our blue one. */
+      .st-key-state_picker_card {
+        outline: none !important;
       }
       .state-picker-marker { display: none; }
       .state-picker-eyebrow {
@@ -1033,7 +1023,7 @@ st.markdown(
       .state-picker-hint {
         font-size: 0.7rem;
         color: #a0a4a8;
-        margin: -0.25rem 0 0 0;
+        margin: 0 !important;
         font-weight: 400;
         line-height: 1.3;
       }
