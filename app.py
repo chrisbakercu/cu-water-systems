@@ -979,21 +979,21 @@ st.markdown(
         box-shadow: 0 2px 10px rgba(8,94,170,0.12) !important;
         padding: 1.1rem 1.5rem !important;
       }
-      /* Even out the inner stack — Streamlit's default vertical gap is uneven
-         after our markdown blocks. */
+      /* Tighten the inner stack gap a touch. */
       .st-key-state_picker_card [data-testid="stVerticalBlock"] {
         gap: 0.4rem !important;
       }
-      /* Flatten the inner block's first AND last child so my container
-         padding is what actually controls top/bottom spacing. */
+      /* Top: zero out the first-child's added margin/padding so the eyebrow
+         sits cleanly under the container padding. */
       .st-key-state_picker_card [data-testid="stVerticalBlock"] > div:first-child {
         margin-top: 0 !important;
         padding-top: 0 !important;
       }
-      .st-key-state_picker_card [data-testid="stVerticalBlock"] > div:last-child,
-      .st-key-state_picker_card [data-testid="stVerticalBlock"] > div:last-child * {
-        margin-bottom: 0 !important;
-        padding-bottom: 0 !important;
+      /* Bottom: Streamlit's inner stVerticalBlock sometimes ignores the
+         outer container's padding-bottom on the last child. Force an
+         explicit breathing space on the hint itself instead. */
+      .state-picker-hint {
+        padding-bottom: 0.25rem !important;
       }
       /* Fallback: if the key trick fails, this still styles the whole column
          that wraps the picker. */
@@ -1033,7 +1033,7 @@ st.markdown(
       .state-picker-hint {
         font-size: 0.7rem;
         color: #a0a4a8;
-        margin-top: -0.25rem;
+        margin: -0.25rem 0 0 0;
         font-weight: 400;
         line-height: 1.3;
       }
