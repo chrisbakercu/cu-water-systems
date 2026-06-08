@@ -47,8 +47,11 @@ DATA_DIR = ROOT / "data"
 TX_PARQUET_DIR = DATA_DIR / "TX"
 OUTPUT_FILE = DATA_DIR / "tx_district_contacts.parquet"
 
-SODA_URL = "https://data.texas.gov/resource/ruhk-kxgs.json"
-PAGE_SIZE = 50_000  # Dataset is ~5k rows — one page covers it.
+# SODA's JSON endpoint returns empty {} rows for this dataset (federated /
+# view-restricted column exposure without an app token). The CSV download
+# endpoint returns the full data and is the publisher's official export
+# path — what the "Download CSV" button on the dataset page uses.
+CSV_URL = "https://data.texas.gov/api/views/ruhk-kxgs/rows.csv?accessType=DOWNLOAD"
 
 # Score thresholds — tuned for high precision, accepting low recall.
 # Wrong matches are worse than missing matches for staff confidence.
@@ -106,57 +109,92 @@ def _norm_county(s: str) -> str:
 
 
 def fetch_tx_districts() -> pd.DataFrame:
-    """Pull all rows from the TCEQ Texas Water Districts dataset."""
-    print(f"Fetching TX Water Districts from {SODA_URL} ...")
+    """Pull all rows from the TCEQ Texas Water Districts dataset (CSV)."""
+    print(f"Fetching TX Water Districts (CSV export) from {CSV_URL} ...")
     r = requests.get(
-        SODA_URL,
-        params={"$limit": PAGE_SIZE},
-        timeout=120,
+        CSV_URL,
+        timeout=180,
         headers={"User-Agent": "communities-unlimited-water-dashboard/1.0"},
+        stream=True,
     )
     r.raise_for_status()
-    rows = r.json()
-    if not rows:
-        print("  WARNING: SODA returned 0 rows. Aborting.", file=sys.stderr)
-        sys.exit(1)
-    df = pd.DataFrame(rows)
+    # Stream the response to a tempfile-free in-memory buffer then parse.
+    from io import StringIO
+    body = r.content.decode("utf-8", errors="replace")
+    df = pd.read_csv(StringIO(body), dtype=str, keep_default_na=False)
     print(f"  got {len(df):,} districts, {len(df.columns)} columns")
     print(f"  columns: {sorted(df.columns.tolist())}")
+    if df.empty:
+        print("  ERROR: CSV had no rows. Aborting.", file=sys.stderr)
+        sys.exit(1)
     return df
 
 
 def normalize_districts(raw: pd.DataFrame) -> pd.DataFrame:
-    """Normalize TCEQ field names + filter to actionable rows."""
-    # Source has typos — preserve and map.
-    column_map = {
-        "distict_name": "district_name",
-        "distict_address_1": "address_1",
-        "district_address_1": "address_1",  # in case TCEQ fixes the typo
-        "district_name": "district_name",
-        "district_type": "district_type",
-        "activity_status": "activity_status",
-        "district_city": "city",
-        "district_zip_code": "zip",
-        "first_name": "first_name",
-        "last_name": "last_name",
-        "job_title": "job_title",
-        "phone": "phone",
-        "county": "county",
-        "district_number": "district_number",
+    """Normalize TCEQ field names + filter to actionable rows.
+
+    TCEQ exposes this dataset under two naming conventions depending on the
+    endpoint: snake_case (with publisher typos like 'distict_name') via SODA
+    JSON, Title Case With Spaces via CSV export. We accept either.
+    """
+    # Each target column lists every source name we've seen for it.
+    # Match is case-insensitive; first hit wins per target.
+    column_aliases = {
+        "district_name":   ["district_name", "distict_name", "District Name", "Distict Name"],
+        "address_1":       ["distict_address_1", "district_address_1", "District Address 1", "Distict Address 1", "Address 1"],
+        "district_type":   ["district_type", "District Type"],
+        "activity_status": ["activity_status", "Activity Status", "Status"],
+        "city":            ["district_city", "District City", "City"],
+        "zip":             ["district_zip_code", "District Zip Code", "Zip Code", "Zip"],
+        "first_name":      ["first_name", "First Name"],
+        "last_name":       ["last_name", "Last Name"],
+        "job_title":       ["job_title", "Job Title", "Title"],
+        "phone":           ["phone", "Phone", "Phone Number"],
+        "county":          ["county", "County"],
+        "district_number": ["district_number", "District Number"],
     }
-    keep = {src: tgt for src, tgt in column_map.items() if src in raw.columns}
+    # Build case-insensitive lookup of raw columns -> actual column name.
+    raw_ci = {c.lower(): c for c in raw.columns}
+    keep: dict[str, str] = {}  # raw_column_name -> target_name
+    missing_targets: list[str] = []
+    for target, aliases in column_aliases.items():
+        found = None
+        for alias in aliases:
+            if alias.lower() in raw_ci:
+                found = raw_ci[alias.lower()]
+                break
+        if found:
+            keep[found] = target
+        else:
+            missing_targets.append(target)
+    if "district_name" in missing_targets:
+        print(
+            "ERROR: could not find a 'district_name'-style column. Got:\n  "
+            + "\n  ".join(sorted(raw.columns.tolist())),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if missing_targets:
+        print(f"  note: optional columns not present: {missing_targets}")
     df = raw[list(keep.keys())].rename(columns=keep).copy()
 
+    # Ensure every target column exists as a Series. df.get() on a DataFrame
+    # returns a scalar when the column is missing, which breaks .fillna() etc.
+    for target in column_aliases:
+        if target not in df.columns:
+            df[target] = ""
+
     # Filter to active districts only — inactive contacts are stale by definition.
-    if "activity_status" in df.columns:
-        before = len(df)
-        df = df[df["activity_status"].str.upper().str.strip() == "ACTIVE"]
-        print(f"  filtered to ACTIVE: {len(df):,} of {before:,}")
+    before = len(df)
+    df = df[df["activity_status"].astype(str).str.upper().str.strip() == "ACTIVE"]
+    print(f"  filtered to ACTIVE: {len(df):,} of {before:,}")
 
     # Build derived fields used for matching + display.
-    df["district_name"] = df["district_name"].fillna("").astype(str)
-    df["county"] = df.get("county", "").fillna("").astype(str)
-    df["city"] = df.get("city", "").fillna("").astype(str)
+    for c in ("district_name", "county", "city", "first_name", "last_name",
+              "job_title", "phone", "address_1", "zip", "district_type",
+              "district_number"):
+        df[c] = df[c].fillna("").astype(str).str.strip()
+
     df["norm_name"] = df["district_name"].map(_norm)
     df["norm_county"] = df["county"].map(_norm_county)
     df["norm_city"] = df["city"].str.upper().str.strip()
@@ -165,19 +203,15 @@ def normalize_districts(raw: pd.DataFrame) -> pd.DataFrame:
     df = df[df["norm_name"] != ""]
     print(f"  with normalizable names: {len(df):,}")
 
-    df["contact_name"] = (
-        df.get("first_name", "").fillna("").astype(str).str.strip()
-        + " "
-        + df.get("last_name", "").fillna("").astype(str).str.strip()
-    ).str.strip()
+    df["contact_name"] = (df["first_name"] + " " + df["last_name"]).str.strip()
     df["address_full"] = df.apply(
         lambda r: " ".join(
             x for x in [
-                str(r.get("address_1", "") or "").strip(),
+                r["address_1"],
                 ", ".join(
                     p for p in [
-                        str(r.get("city", "") or "").strip(),
-                        f"TX {str(r.get('zip', '') or '').strip()}".strip(),
+                        r["city"],
+                        f"TX {r['zip']}".strip(),
                     ] if p
                 ),
             ] if x
