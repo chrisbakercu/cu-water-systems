@@ -260,6 +260,25 @@ def normalize_districts(raw: pd.DataFrame) -> pd.DataFrame:
     df = df[df["activity_status"].astype(str).str.upper().str.strip() == "ACTIVE"]
     print(f"  filtered to ACTIVE: {len(df):,} of {before:,}")
 
+    # Dedup to one row per district. The CSV often has multiple contact rows
+    # per district_number (GM, secretary, board member, etc.). We rank by
+    # job title seniority and keep the most senior. If no title hits a known
+    # seniority keyword, we keep the first row (publisher's default order).
+    if "district_number" in df.columns:
+        SENIORITY = [
+            "GENERAL MANAGER", "MANAGER", "PRESIDENT", "SUPERINTENDENT",
+            "EXECUTIVE DIRECTOR", "DIRECTOR", "OPERATOR", "CLERK", "SECRETARY",
+        ]
+        title_upper = df.get("job_title", pd.Series([""] * len(df))).fillna("").astype(str).str.upper()
+        df["_rank"] = 99
+        for i, kw in enumerate(SENIORITY):
+            mask = title_upper.str.contains(kw, na=False) & (df["_rank"] == 99)
+            df.loc[mask, "_rank"] = i
+        before = len(df)
+        df = df.sort_values("_rank").drop_duplicates("district_number", keep="first")
+        df = df.drop(columns=["_rank"])
+        print(f"  deduped to one contact per district: {len(df):,} of {before:,}")
+
     # Build derived fields used for matching + display.
     for c in ("district_name", "county", "city", "first_name", "last_name",
               "job_title", "phone", "address_1", "zip", "district_type",
