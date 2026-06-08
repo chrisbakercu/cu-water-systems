@@ -7,3 +7,5 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .claude/
+
+data/tx_water_districts_raw.csv
