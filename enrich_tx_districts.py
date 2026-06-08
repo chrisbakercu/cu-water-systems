@@ -12,12 +12,17 @@ PWS named "HARRIS CO MUD 123 / HARRIS COUNTY MUD #123" — but not always
 cleanly. We score on multiple signals and keep only confident matches.
 
 Usage:
-    # 1. Get a free Socrata app token (~2 min, no payment):
-    #    https://data.texas.gov/profile/edit/developer_settings
-    # 2. Set the env var:
-    #    [Environment]::SetEnvironmentVariable("SOCRATA_APP_TOKEN", "<token>", "User")
-    # 3. Restart PowerShell so the var is loaded, then:
+    # 1. Download the CSV from data.texas.gov:
+    #    - Open https://data.texas.gov/d/ruhk-kxgs
+    #    - Click Export (top right) -> CSV
+    #    - Save as: data/tx_water_districts_raw.csv
+    # 2. Run:
     python enrich_tx_districts.py
+
+    The Socrata API for this dataset silently strips column values even
+    with an authenticated app token (publisher-side config quirk), so
+    manual CSV export is the reliable path. The API path is kept as a
+    fallback in case TCEQ fixes the config later.
 
 Output:
     data/tx_district_contacts.parquet
@@ -52,6 +57,10 @@ ROOT = Path(__file__).parent
 DATA_DIR = ROOT / "data"
 TX_PARQUET_DIR = DATA_DIR / "TX"
 OUTPUT_FILE = DATA_DIR / "tx_district_contacts.parquet"
+# Local CSV path — manually downloaded from data.texas.gov. The Socrata
+# API returns empty rows for this dataset even with a valid app token
+# (publisher-side config quirk), so manual export is the reliable path.
+LOCAL_CSV = DATA_DIR / "tx_water_districts_raw.csv"
 
 # Both the v2 SODA endpoint (/resource/.json) and the CSV export endpoint
 # silently strip column values for anonymous requests on this dataset.
@@ -132,13 +141,43 @@ def _require_token() -> str:
 
 
 def fetch_tx_districts() -> pd.DataFrame:
-    """Pull all rows from the TCEQ Texas Water Districts dataset via SODA JSON.
+    """Load the TCEQ Texas Water Districts dataset.
 
-    Uses the app token. SODA's JSON returns proper rows once authenticated
-    (the empty-row behavior was the anonymous-access guard).
+    Path 1 (preferred): read from a manually-downloaded CSV at
+    data/tx_water_districts_raw.csv. The Socrata API for this dataset
+    silently strips column values (even with a valid app token), so the
+    CSV export from the dataset page is the reliable source.
+
+    Path 2 (fallback): try the SODA JSON API with the app token. Kept
+    in case TCEQ fixes the dataset config in the future.
     """
+    if LOCAL_CSV.exists():
+        print(f"Reading local CSV: {LOCAL_CSV.relative_to(ROOT)}")
+        df = pd.read_csv(LOCAL_CSV, dtype=str, keep_default_na=False)
+        print(f"  got {len(df):,} districts, {len(df.columns)} columns")
+        print(f"  columns: {sorted(df.columns.tolist())}")
+        if df.empty or len(df.columns) == 0:
+            print(
+                f"  ERROR: local CSV is empty. Re-download from\n"
+                f"  https://data.texas.gov/d/ruhk-kxgs (Export -> CSV)\n"
+                f"  and save to {LOCAL_CSV.relative_to(ROOT)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return df
+
+    print(
+        f"No local CSV found at {LOCAL_CSV.relative_to(ROOT)}.\n"
+        f"To use this script:\n"
+        f"  1. Open https://data.texas.gov/d/ruhk-kxgs in a browser\n"
+        f"  2. Click 'Export' (top right) -> 'CSV'\n"
+        f"  3. Save the downloaded file as:\n"
+        f"     {LOCAL_CSV}\n"
+        f"  4. Re-run this script.\n"
+        f"\nAttempting Socrata API fallback ...",
+        file=sys.stderr,
+    )
     token = _require_token()
-    print(f"Fetching TX Water Districts (authenticated SODA JSON) ...")
     r = requests.get(
         SODA_URL,
         params={"$limit": PAGE_SIZE},
@@ -150,17 +189,12 @@ def fetch_tx_districts() -> pd.DataFrame:
     )
     r.raise_for_status()
     rows = r.json()
-    if not rows:
-        print("  ERROR: API returned 0 rows. Aborting.", file=sys.stderr)
-        sys.exit(1)
-    df = pd.DataFrame(rows)
-    print(f"  got {len(df):,} districts, {len(df.columns)} columns")
-    print(f"  columns: {sorted(df.columns.tolist())}")
-    if len(df.columns) == 0:
+    df = pd.DataFrame(rows) if rows else pd.DataFrame()
+    print(f"  API got {len(df):,} rows, {len(df.columns)} columns")
+    if df.empty or len(df.columns) == 0:
         print(
-            "  ERROR: rows came back as empty objects. Your token may be invalid\n"
-            "  or this dataset requires additional grants. Check your token at\n"
-            "  https://data.texas.gov/profile/edit/developer_settings",
+            "\n  ERROR: API returned empty data (known publisher quirk).\n"
+            "  Please download the CSV manually per the instructions above.",
             file=sys.stderr,
         )
         sys.exit(1)
