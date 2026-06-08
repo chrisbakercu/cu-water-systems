@@ -12,6 +12,11 @@ PWS named "HARRIS CO MUD 123 / HARRIS COUNTY MUD #123" — but not always
 cleanly. We score on multiple signals and keep only confident matches.
 
 Usage:
+    # 1. Get a free Socrata app token (~2 min, no payment):
+    #    https://data.texas.gov/profile/edit/developer_settings
+    # 2. Set the env var:
+    #    [Environment]::SetEnvironmentVariable("SOCRATA_APP_TOKEN", "<token>", "User")
+    # 3. Restart PowerShell so the var is loaded, then:
     python enrich_tx_districts.py
 
 Output:
@@ -34,6 +39,7 @@ Caveats:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -47,11 +53,13 @@ DATA_DIR = ROOT / "data"
 TX_PARQUET_DIR = DATA_DIR / "TX"
 OUTPUT_FILE = DATA_DIR / "tx_district_contacts.parquet"
 
-# SODA's JSON endpoint returns empty {} rows for this dataset (federated /
-# view-restricted column exposure without an app token). The CSV download
-# endpoint returns the full data and is the publisher's official export
-# path — what the "Download CSV" button on the dataset page uses.
+# Both the v2 SODA endpoint (/resource/.json) and the CSV export endpoint
+# silently strip column values for anonymous requests on this dataset.
+# An app token unlocks full access. Tokens are free at
+# https://data.texas.gov/profile/edit/developer_settings — no payment.
+SODA_URL = "https://data.texas.gov/resource/ruhk-kxgs.json"
 CSV_URL = "https://data.texas.gov/api/views/ruhk-kxgs/rows.csv?accessType=DOWNLOAD"
+PAGE_SIZE = 50_000  # Dataset is ~3k rows — one page covers it.
 
 # Score thresholds — tuned for high precision, accepting low recall.
 # Wrong matches are worse than missing matches for staff confidence.
@@ -108,24 +116,53 @@ def _norm_county(s: str) -> str:
     return re.sub(r"\s+COUNTY$", "", s)
 
 
+def _require_token() -> str:
+    token = os.environ.get("SOCRATA_APP_TOKEN", "").strip()
+    if not token:
+        print(
+            "ERROR: SOCRATA_APP_TOKEN env var not set.\n"
+            "Get a free token at https://data.texas.gov/profile/edit/developer_settings\n"
+            "Then in PowerShell:\n"
+            '  [Environment]::SetEnvironmentVariable("SOCRATA_APP_TOKEN", "<token>", "User")\n'
+            "Restart PowerShell, then re-run this script.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return token
+
+
 def fetch_tx_districts() -> pd.DataFrame:
-    """Pull all rows from the TCEQ Texas Water Districts dataset (CSV)."""
-    print(f"Fetching TX Water Districts (CSV export) from {CSV_URL} ...")
+    """Pull all rows from the TCEQ Texas Water Districts dataset via SODA JSON.
+
+    Uses the app token. SODA's JSON returns proper rows once authenticated
+    (the empty-row behavior was the anonymous-access guard).
+    """
+    token = _require_token()
+    print(f"Fetching TX Water Districts (authenticated SODA JSON) ...")
     r = requests.get(
-        CSV_URL,
+        SODA_URL,
+        params={"$limit": PAGE_SIZE},
         timeout=180,
-        headers={"User-Agent": "communities-unlimited-water-dashboard/1.0"},
-        stream=True,
+        headers={
+            "User-Agent": "communities-unlimited-water-dashboard/1.0",
+            "X-App-Token": token,
+        },
     )
     r.raise_for_status()
-    # Stream the response to a tempfile-free in-memory buffer then parse.
-    from io import StringIO
-    body = r.content.decode("utf-8", errors="replace")
-    df = pd.read_csv(StringIO(body), dtype=str, keep_default_na=False)
+    rows = r.json()
+    if not rows:
+        print("  ERROR: API returned 0 rows. Aborting.", file=sys.stderr)
+        sys.exit(1)
+    df = pd.DataFrame(rows)
     print(f"  got {len(df):,} districts, {len(df.columns)} columns")
     print(f"  columns: {sorted(df.columns.tolist())}")
-    if df.empty:
-        print("  ERROR: CSV had no rows. Aborting.", file=sys.stderr)
+    if len(df.columns) == 0:
+        print(
+            "  ERROR: rows came back as empty objects. Your token may be invalid\n"
+            "  or this dataset requires additional grants. Check your token at\n"
+            "  https://data.texas.gov/profile/edit/developer_settings",
+            file=sys.stderr,
+        )
         sys.exit(1)
     return df
 
