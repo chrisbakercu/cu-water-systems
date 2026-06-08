@@ -94,6 +94,73 @@ def _safe_int(value) -> int:
         return 0
 
 
+# State Drinking Water Watch deep-link URLs.
+# These are EPA's distributed Drinking Water Watch app, deployed per-state.
+# The SearchDispatch endpoint accepts a PWSID via the `number` param and lands
+# the user on the matching system page. URLs verified per state's portal root.
+# Add new states here as we confirm their DWW URL pattern.
+STATE_DWW_URLS = {
+    "AL": (
+        "https://dww.adem.alabama.gov/DWW/JSP/SearchDispatch?"
+        "action=Water+System+Search&number={pwsid}"
+    ),
+    "MS": (
+        "https://apps.msdh.ms.gov/DWW/JSP/SearchDispatch?"
+        "action=Water+System+Search&number={pwsid}"
+    ),
+    "OK": (
+        "http://sdwis.deq.state.ok.us/DWW/JSP/SearchDispatch?"
+        "action=Water+System+Search&number={pwsid}"
+    ),
+}
+STATE_DWW_LABELS = {
+    "AL": "ADEM Drinking Water Watch",
+    "MS": "MSDH Drinking Water Watch",
+    "OK": "OK DEQ Drinking Water Watch",
+}
+
+
+def _render_state_dww_link(pwsid: str, state_code: str) -> None:
+    """Render a small 'View on [state] DWW' link for states without bulk data.
+
+    For systems in MS / OK / AL, this gives staff a one-click jump to the
+    state's authoritative record — useful when EPA's federal feed has stale
+    or missing operator contacts. No-op for other states.
+    """
+    state_code = (state_code or "").upper().strip()
+    if state_code not in STATE_DWW_URLS:
+        return
+    url = STATE_DWW_URLS[state_code].format(pwsid=pwsid)
+    label = STATE_DWW_LABELS[state_code]
+    st.markdown(
+        f"""
+        <div style='margin: 0.25rem 0 1rem 0;'>
+          <a href='{url}' target='_blank' rel='noopener noreferrer' style='
+              display:inline-flex;
+              align-items:center;
+              gap:0.45rem;
+              background:#ffffff;
+              border:1px solid #d8e2ee;
+              color:#085eaa;
+              padding:0.45rem 0.85rem;
+              border-radius:8px;
+              font-size:0.875rem;
+              font-weight:500;
+              text-decoration:none;
+              transition: background 0.15s, border-color 0.15s;
+          ' onmouseover="this.style.background='#eaf2fa';this.style.borderColor='#0088ce'"
+            onmouseout="this.style.background='#ffffff';this.style.borderColor='#d8e2ee'">
+            View on {label} <span style='opacity:0.7;'>↗</span>
+          </a>
+          <div style='font-size:0.75rem;color:#6b7280;margin-top:0.35rem;'>
+            State portal may have fresher operator info than the federal feed.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_service_area_context(pwsid: str) -> None:
     """Show Census ACS + persistent-poverty context for the counties this system serves.
 
@@ -242,6 +309,11 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     state_code = _safe_str(row.get("state_code"))
     zip_code = _safe_str(row.get("zip_code"))
     addr_full = (f"{addr}  \n" if addr else "") + f"{city}, {state_code} {zip_code}"
+
+    # Deep link to state Drinking Water Watch (MS / OK / AL only — others
+    # either have bulk data ingested or need a data-share request).
+    _render_state_dww_link(pwsid, state_code)
+
     st.markdown("**Mailing address**")
     st.write(addr_full)
 
