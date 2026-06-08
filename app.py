@@ -117,27 +117,46 @@ STATE_DWW_URLS = {
         "https://dataviewers.tdec.tn.gov/DWW/JSP/SearchDispatch?"
         "action=Water+System+Search&number={pwsid}"
     ),
+    # TX uses TCEQ Drinking Water Viewer (not standard DWW). The app is
+    # JS-rendered with no confirmed deep-link URL pattern — link to the
+    # homepage where staff paste the PWSID into the search box.
+    "TX": "https://dwv.tceq.texas.gov/",
 }
 STATE_DWW_LABELS = {
     "AL": "ADEM Drinking Water Watch",
     "MS": "MSDH Drinking Water Watch",
     "OK": "OK DEQ Drinking Water Watch",
     "TN": "TDEC Drinking Water Watch",
+    "TX": "TCEQ Drinking Water Viewer",
 }
+# States whose deep-link drops the user on a search homepage (not a
+# pre-filled detail page). Hint text adapts to instruct them to paste
+# the PWSID.
+STATE_DWW_REQUIRES_SEARCH = {"TX"}
 
 
 def _render_state_dww_link(pwsid: str, state_code: str) -> None:
     """Render a small 'View on [state] DWW' link for states without bulk data.
 
-    For systems in MS / OK / AL / TN, this gives staff a one-click jump to
-    the state's authoritative record — useful when EPA's federal feed has
-    stale or missing operator contacts. No-op for other states.
+    Gives staff a one-click jump to the state's authoritative record —
+    useful when EPA's federal feed has stale or missing operator contacts.
+    No-op for states not in STATE_DWW_URLS.
     """
     state_code = (state_code or "").upper().strip()
     if state_code not in STATE_DWW_URLS:
         return
     url = STATE_DWW_URLS[state_code].format(pwsid=pwsid)
     label = STATE_DWW_LABELS[state_code]
+    if state_code in STATE_DWW_REQUIRES_SEARCH:
+        button_text = f"Search {label}"
+        hint = (
+            f"Lands on the search page. Paste this PWSID to find the system: "
+            f"<code style='background:#eef3f9;padding:0.05rem 0.35rem;border-radius:4px;"
+            f"font-size:0.8rem;color:#085eaa;'>{pwsid}</code>"
+        )
+    else:
+        button_text = f"View on {label}"
+        hint = "State portal may have fresher operator info than the federal feed."
     st.markdown(
         f"""
         <div style='margin: 0.25rem 0 1rem 0;'>
@@ -156,10 +175,10 @@ def _render_state_dww_link(pwsid: str, state_code: str) -> None:
               transition: background 0.15s, border-color 0.15s;
           ' onmouseover="this.style.background='#eaf2fa';this.style.borderColor='#0088ce'"
             onmouseout="this.style.background='#ffffff';this.style.borderColor='#d8e2ee'">
-            View on {label} <span style='opacity:0.7;'>↗</span>
+            {button_text} <span style='opacity:0.7;'>↗</span>
           </a>
           <div style='font-size:0.75rem;color:#6b7280;margin-top:0.35rem;'>
-            State portal may have fresher operator info than the federal feed.
+            {hint}
           </div>
         </div>
         """,
@@ -361,8 +380,8 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     zip_code = _safe_str(row.get("zip_code"))
     addr_full = (f"{addr}  \n" if addr else "") + f"{city}, {state_code} {zip_code}"
 
-    # Deep link to state Drinking Water Watch (MS / OK / AL / TN — others
-    # either have bulk data ingested or need a data-share request).
+    # Deep link to state Drinking Water Watch / Viewer (MS / OK / AL / TN / TX
+    # — AR and LA still pending data-share requests).
     _render_state_dww_link(pwsid, state_code)
 
     st.markdown("**Mailing address**")
