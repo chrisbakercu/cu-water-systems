@@ -17,6 +17,7 @@ ROOT = Path(__file__).parent
 PARQUET_DIR = ROOT / "data"
 FIPS_FILE = PARQUET_DIR / "national_county2020.txt"
 COUNTY_CONTEXT_FILE = PARQUET_DIR / "county_context.parquet"
+TX_DISTRICT_CONTACTS_FILE = PARQUET_DIR / "tx_district_contacts.parquet"
 SMALL_SYSTEM_THRESHOLD = 3300
 LCR_ACTION_LEVEL_PPB = 15
 
@@ -112,20 +113,25 @@ STATE_DWW_URLS = {
         "http://sdwis.deq.state.ok.us/DWW/JSP/SearchDispatch?"
         "action=Water+System+Search&number={pwsid}"
     ),
+    "TN": (
+        "https://dataviewers.tdec.tn.gov/DWW/JSP/SearchDispatch?"
+        "action=Water+System+Search&number={pwsid}"
+    ),
 }
 STATE_DWW_LABELS = {
     "AL": "ADEM Drinking Water Watch",
     "MS": "MSDH Drinking Water Watch",
     "OK": "OK DEQ Drinking Water Watch",
+    "TN": "TDEC Drinking Water Watch",
 }
 
 
 def _render_state_dww_link(pwsid: str, state_code: str) -> None:
     """Render a small 'View on [state] DWW' link for states without bulk data.
 
-    For systems in MS / OK / AL, this gives staff a one-click jump to the
-    state's authoritative record — useful when EPA's federal feed has stale
-    or missing operator contacts. No-op for other states.
+    For systems in MS / OK / AL / TN, this gives staff a one-click jump to
+    the state's authoritative record — useful when EPA's federal feed has
+    stale or missing operator contacts. No-op for other states.
     """
     state_code = (state_code or "").upper().strip()
     if state_code not in STATE_DWW_URLS:
@@ -284,6 +290,50 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
         if alt_phone else ""
     )
 
+    # Supplemental TX district contact, if a fuzzy match exists. EPA fields
+    # above always take precedence — this is appended, never replaces.
+    tx_supplemental_html = ""
+    state_code_for_tx = _safe_str(row.get("state_code")).upper()
+    if state_code_for_tx == "TX":
+        tx_contacts = load_tx_district_contacts()
+        tx_match = tx_contacts[tx_contacts["pwsid"] == pwsid]
+        if not tx_match.empty:
+            tx = tx_match.iloc[0]
+            tx_name = _safe_str(tx.get("contact_name"))
+            tx_title = _safe_str(tx.get("contact_title"))
+            tx_phone = _safe_str(tx.get("phone"))
+            tx_address = _safe_str(tx.get("address_full"))
+            tx_score = int(tx.get("match_score") or 0)
+            parts = []
+            if tx_name:
+                parts.append(
+                    f"<span style='color:#1f2933;font-weight:600;'>{tx_name}</span>"
+                    + (f" · <span style='color:#6b7280;'>{tx_title}</span>" if tx_title else "")
+                )
+            if tx_phone:
+                parts.append(
+                    f"<a href='tel:{tx_phone}' style='color:#085eaa;text-decoration:none;'>{tx_phone}</a>"
+                )
+            if tx_address:
+                parts.append(
+                    f"<span style='color:#6b7280;'>{tx_address}</span>"
+                )
+            if parts:
+                tx_supplemental_html = (
+                    "<div style='margin-top:0.85rem;padding-top:0.75rem;"
+                    "border-top:1px solid #f0f2f5;'>"
+                    "<div style='font-size:0.72rem;font-weight:700;letter-spacing:0.14em;"
+                    "color:#0088ce;text-transform:uppercase;margin-bottom:0.35rem;'>"
+                    "Also in TX Water Districts "
+                    f"<span style='font-weight:500;letter-spacing:0;text-transform:none;"
+                    f"color:#6b7280;font-size:0.7rem;'>"
+                    f"· best-effort name match (score {tx_score})</span>"
+                    "</div>"
+                    f"<div style='font-size:0.95rem;line-height:1.5;'>"
+                    + "<br/>".join(parts)
+                    + "</div></div>"
+                )
+
     st.markdown(
         f"""
         <div style='background:#ffffff;border:1px solid #d8e2ee;border-left:4px solid #085eaa;
@@ -297,6 +347,7 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
             <div><div style='color:#6b7280;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.15rem;'>Email</div><div>{email_html}</div></div>
             <div><div style='color:#6b7280;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.15rem;'>Phone</div><div>{phone_html}{alt_phone_html}</div></div>
           </div>
+          {tx_supplemental_html}
           <div style='margin-top:0.85rem;padding-top:0.75rem;border-top:1px solid #f0f2f5;
               font-size:0.75rem;color:#6b7280;'>PII — handle per CU confidentiality rules.</div>
         </div>
@@ -310,7 +361,7 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     zip_code = _safe_str(row.get("zip_code"))
     addr_full = (f"{addr}  \n" if addr else "") + f"{city}, {state_code} {zip_code}"
 
-    # Deep link to state Drinking Water Watch (MS / OK / AL only — others
+    # Deep link to state Drinking Water Watch (MS / OK / AL / TN — others
     # either have bulk data ingested or need a data-share request).
     _render_state_dww_link(pwsid, state_code)
 
@@ -822,6 +873,30 @@ def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
             if c in df.columns:
                 df[c] = df[c].astype("category")
     return frames
+
+
+@st.cache_data(max_entries=1)
+def load_tx_district_contacts() -> pd.DataFrame:
+    """TX Water Districts fuzzy-matched to PWSID, with operator contacts.
+
+    EPA SDWIS is the primary source for every system. This is supplemental:
+    a best-effort name+county match against the TCEQ Texas Water Districts
+    open dataset. Only systems with a match score above the script's
+    threshold appear here.
+
+    Returns an empty DataFrame with expected columns if the parquet
+    hasn't been built (i.e., `enrich_tx_districts.py` hasn't been run).
+    """
+    cols = [
+        "pwsid", "district_number", "district_name", "district_type",
+        "contact_name", "contact_title", "phone", "address_full",
+        "county", "match_score", "match_reason",
+    ]
+    if not TX_DISTRICT_CONTACTS_FILE.exists():
+        return pd.DataFrame(columns=cols)
+    df = pd.read_parquet(TX_DISTRICT_CONTACTS_FILE)
+    df["pwsid"] = df["pwsid"].astype(str)
+    return df
 
 
 @st.cache_data(max_entries=1)
