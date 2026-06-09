@@ -105,21 +105,20 @@ STATE_DWW_URLS = {
         "https://dww.adem.alabama.gov/DWW/JSP/SearchDispatch?"
         "action=Water+System+Search&number={pwsid}"
     ),
-    "MS": (
-        "https://apps.msdh.ms.gov/DWW/JSP/SearchDispatch?"
-        "action=Water+System+Search&number={pwsid}"
-    ),
     "OK": (
         "http://sdwis.deq.state.ok.us/DWW/JSP/SearchDispatch?"
         "action=Water+System+Search&number={pwsid}"
     ),
-    "TN": (
-        "https://dataviewers.tdec.tn.gov/DWW/JSP/SearchDispatch?"
-        "action=Water+System+Search&number={pwsid}"
-    ),
-    # TX uses TCEQ Drinking Water Viewer (not standard DWW). The app is
-    # JS-rendered with no confirmed deep-link URL pattern — link to the
-    # homepage where staff paste the PWSID into the search box.
+    # MS DWW's standard SearchDispatch URL throws 500s — the server-side
+    # search action is broken or has been customized. Land users on the
+    # DWW home; they paste the PWSID.
+    "MS": "https://apps.msdh.ms.gov/DWW/",
+    # TN moved off classic DWW to a Tableau viewer. The Tableau workbook
+    # doesn't accept URL params for per-system filtering — land users on
+    # the home view; they filter inside Tableau.
+    "TN": "https://data.tn.gov/t/Public/views/TNDrinkingWaterWatch/Home_page",
+    # TX uses TCEQ Drinking Water Viewer (custom app, JS-rendered, no
+    # confirmed deep-link URL pattern). Search-style entry.
     "TX": "https://dwv.tceq.texas.gov/",
 }
 STATE_DWW_LABELS = {
@@ -130,9 +129,9 @@ STATE_DWW_LABELS = {
     "TX": "TCEQ Drinking Water Viewer",
 }
 # States whose deep-link drops the user on a search homepage (not a
-# pre-filled detail page). Hint text adapts to instruct them to paste
-# the PWSID.
-STATE_DWW_REQUIRES_SEARCH = {"TX"}
+# pre-filled detail page). Hint text adapts to show the PWSID inline
+# as a copy-paste chip.
+STATE_DWW_REQUIRES_SEARCH = {"MS", "TN", "TX"}
 
 
 def _render_state_dww_link(pwsid: str, state_code: str) -> None:
