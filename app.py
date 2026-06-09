@@ -119,6 +119,10 @@ STATE_DWW_URLS = {
     # crawlers but human navigation via a clicked link is fine — same as
     # a bookmark. Staff search by PWSID inside the portal.
     "LA": "https://sdw.ldh.la.gov/",
+    # AR has no public per-system viewer. Point to ADH's Drinking Water
+    # Systems & Operators info page — has program navigation and the
+    # Engineering Section direct line (501-661-2623).
+    "AR": "https://healthy.arkansas.gov/programs-services/public-health-safety/drinking-water-systems-operators/",
 }
 STATE_DWW_LABELS = {
     "AL": "ADEM Drinking Water Branch",
@@ -127,13 +131,14 @@ STATE_DWW_LABELS = {
     "TN": "TDEC Drinking Water Watch",
     "TX": "TCEQ Drinking Water Viewer",
     "LA": "LDH Safe Drinking Water",
+    "AR": "ADH Drinking Water Program",
 }
 # States whose link lands users on a homepage instead of a pre-filled
 # detail page. Hint text adapts to show the PWSID inline as a copy chip.
 # AL lands on an info page (no search box) — hint text mentions calling
 # the branch directly instead.
 STATE_DWW_REQUIRES_SEARCH = {"MS", "TN", "TX", "LA"}
-STATE_DWW_INFO_PAGE = {"AL", "OK"}
+STATE_DWW_INFO_PAGE = {"AL", "OK", "AR"}
 
 
 def _render_state_dww_link(pwsid: str, state_code: str) -> None:
