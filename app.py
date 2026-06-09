@@ -115,6 +115,10 @@ STATE_DWW_URLS = {
     "TN": "https://data.tn.gov/t/Public/views/TNDrinkingWaterWatch/Home_page",
     # TX uses TCEQ Drinking Water Viewer (custom app, JS-rendered) — search-style.
     "TX": "https://dwv.tceq.texas.gov/",
+    # LA's Safe Drinking Water portal (sdw.ldh.la.gov). robots.txt blocks
+    # crawlers but human navigation via a clicked link is fine — same as
+    # a bookmark. Staff search by PWSID inside the portal.
+    "LA": "https://sdw.ldh.la.gov/",
 }
 STATE_DWW_LABELS = {
     "AL": "ADEM Drinking Water Branch",
@@ -122,12 +126,13 @@ STATE_DWW_LABELS = {
     "OK": "OK DEQ Public Water Supply",
     "TN": "TDEC Drinking Water Watch",
     "TX": "TCEQ Drinking Water Viewer",
+    "LA": "LDH Safe Drinking Water",
 }
 # States whose link lands users on a homepage instead of a pre-filled
 # detail page. Hint text adapts to show the PWSID inline as a copy chip.
 # AL lands on an info page (no search box) — hint text mentions calling
 # the branch directly instead.
-STATE_DWW_REQUIRES_SEARCH = {"MS", "TN", "TX"}
+STATE_DWW_REQUIRES_SEARCH = {"MS", "TN", "TX", "LA"}
 STATE_DWW_INFO_PAGE = {"AL", "OK"}
 
 
