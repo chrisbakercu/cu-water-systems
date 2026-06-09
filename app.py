@@ -101,37 +101,38 @@ def _safe_int(value) -> int:
 # the user on the matching system page. URLs verified per state's portal root.
 # Add new states here as we confirm their DWW URL pattern.
 STATE_DWW_URLS = {
-    "AL": (
-        "https://dww.adem.alabama.gov/DWW/JSP/SearchDispatch?"
-        "action=Water+System+Search&number={pwsid}"
-    ),
+    # AL DWW server (dww.adem.alabama.gov) is unreachable. Point to ADEM's
+    # Drinking Water Branch info page — has the branch phone and email
+    # for staff to call when EPA contact is stale.
+    "AL": "https://adem.alabama.gov/water/drinking-water-branch",
+    # OK DEQ DWW (sdwis.deq.state.ok.us) is unreachable from our fetcher;
+    # may or may not work from elsewhere. Keep the SearchDispatch URL for
+    # now — if confirmed broken, switch to OK DEQ's info page like AL.
     "OK": (
         "http://sdwis.deq.state.ok.us/DWW/JSP/SearchDispatch?"
         "action=Water+System+Search&number={pwsid}"
     ),
-    # MS DWW's standard SearchDispatch URL throws 500s — the server-side
-    # search action is broken or has been customized. Land users on the
-    # DWW home; they paste the PWSID.
+    # MS DWW's standard SearchDispatch URL throws 500s — land on DWW home.
     "MS": "https://apps.msdh.ms.gov/DWW/",
-    # TN moved off classic DWW to a Tableau viewer. The Tableau workbook
-    # doesn't accept URL params for per-system filtering — land users on
-    # the home view; they filter inside Tableau.
+    # TN moved off classic DWW to a Tableau viewer that doesn't accept
+    # per-system URL params — land on the home view.
     "TN": "https://data.tn.gov/t/Public/views/TNDrinkingWaterWatch/Home_page",
-    # TX uses TCEQ Drinking Water Viewer (custom app, JS-rendered, no
-    # confirmed deep-link URL pattern). Search-style entry.
+    # TX uses TCEQ Drinking Water Viewer (custom app, JS-rendered) — search-style.
     "TX": "https://dwv.tceq.texas.gov/",
 }
 STATE_DWW_LABELS = {
-    "AL": "ADEM Drinking Water Watch",
+    "AL": "ADEM Drinking Water Branch",
     "MS": "MSDH Drinking Water Watch",
     "OK": "OK DEQ Drinking Water Watch",
     "TN": "TDEC Drinking Water Watch",
     "TX": "TCEQ Drinking Water Viewer",
 }
-# States whose deep-link drops the user on a search homepage (not a
-# pre-filled detail page). Hint text adapts to show the PWSID inline
-# as a copy-paste chip.
+# States whose link lands users on a homepage instead of a pre-filled
+# detail page. Hint text adapts to show the PWSID inline as a copy chip.
+# AL lands on an info page (no search box) — hint text mentions calling
+# the branch directly instead.
 STATE_DWW_REQUIRES_SEARCH = {"MS", "TN", "TX"}
+STATE_DWW_INFO_PAGE = {"AL"}
 
 
 def _render_state_dww_link(pwsid: str, state_code: str) -> None:
@@ -146,7 +147,13 @@ def _render_state_dww_link(pwsid: str, state_code: str) -> None:
         return
     url = STATE_DWW_URLS[state_code].format(pwsid=pwsid)
     label = STATE_DWW_LABELS[state_code]
-    if state_code in STATE_DWW_REQUIRES_SEARCH:
+    if state_code in STATE_DWW_INFO_PAGE:
+        button_text = f"Open {label}"
+        hint = (
+            "AL's per-system Drinking Water Watch is unreachable. "
+            "The branch page has phone/email if you need to reach ADEM directly."
+        )
+    elif state_code in STATE_DWW_REQUIRES_SEARCH:
         button_text = f"Search {label}"
         hint = (
             f"Lands on the search page. Paste this PWSID to find the system: "
