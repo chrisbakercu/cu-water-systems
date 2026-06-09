@@ -49,6 +49,103 @@ TYPE_LABELS = {
     "TNCWS": "Transient non-community",
 }
 
+# --- EPA SDWIS code decoding -------------------------------------------------
+# Plain-language labels for the violation codes a TA provider needs to read at
+# a glance. Only codes verified against known federal MCLs/definitions are
+# mapped; anything unmapped falls back to the raw code so nothing is ever
+# mislabeled. Sources: EPA SDWIS_FED data dictionary + 40 CFR 141 MCLs.
+VIOLATION_CATEGORY_LABELS = {
+    "MCL": "Max contaminant level exceeded",
+    "MRDL": "Max disinfectant level exceeded",
+    "TT": "Treatment technique failure",
+    "MR": "Monitoring & reporting",
+    "MON": "Monitoring (no sample)",
+    "RPT": "Reporting (late/missing)",
+    "Other": "Other",
+}
+# Monitoring & reporting categories — administrative, not a contaminant
+# exceedance. A small system buried in these is a capacity-support candidate.
+MR_CATEGORIES = {"MR", "MON", "RPT"}
+
+# Public notification tier drives urgency. Tier 1 = acute, 24-hour notice.
+PN_TIER_LABELS = {
+    "1": "Tier 1 — acute (24-hr notice)",
+    "2": "Tier 2 — 30-day notice",
+    "3": "Tier 3 — annual notice",
+}
+
+# Rule codes — map the well-known rules; fall back to "Rule NNN" otherwise.
+RULE_CODE_LABELS = {
+    "110": "Total Coliform Rule",
+    "111": "Revised Total Coliform Rule",
+    "121": "Surface Water Treatment Rule",
+    "122": "Interim Enhanced SWTR",
+    "123": "Long Term 1 Enhanced SWTR",
+    "124": "Long Term 2 Enhanced SWTR",
+    "140": "Ground Water Rule",
+    "210": "Stage 1 Disinfection Byproducts",
+    "220": "Stage 2 Disinfection Byproducts",
+    "310": "Volatile Organic Chemicals",
+    "320": "Synthetic Organic Chemicals",
+    "331": "Nitrates",
+    "340": "Radionuclides",
+    "350": "Lead & Copper Rule",
+    "351": "Lead & Copper Rule Revisions",
+    "410": "Public Notification Rule",
+    "420": "Consumer Confidence Report Rule",
+    "500": "Not regulated",
+}
+
+# Contaminant codes verified against their federal MCL during this build.
+CONTAMINANT_LABELS = {
+    "2950": "Total trihalomethanes (TTHM)",
+    "2456": "Haloacetic acids (HAA5)",
+    "1005": "Arsenic",
+    "1040": "Nitrate",
+    "1041": "Nitrite",
+    "1025": "Fluoride",
+    "1020": "Chromium (total)",
+    "1094": "Asbestos",
+    "4000": "Gross alpha",
+    "4010": "Combined radium (226/228)",
+    "4006": "Uranium",
+    "8000": "Coliform (total)",
+    "5000": "Lead & copper (treatment technique)",
+}
+
+
+def decode_category(code) -> str:
+    c = _safe_str(code)
+    return VIOLATION_CATEGORY_LABELS.get(c, c or "—")
+
+
+def decode_tier(code) -> str:
+    c = _safe_str(code).split(".")[0]  # tier sometimes arrives as "1.0"
+    return PN_TIER_LABELS.get(c, c or "—")
+
+
+def decode_rule(code) -> str:
+    c = _safe_str(code).split(".")[0]
+    return RULE_CODE_LABELS.get(c, f"Rule {c}" if c else "—")
+
+
+def decode_contaminant(code) -> str:
+    c = _safe_str(code)
+    return CONTAMINANT_LABELS.get(c, f"Code {c}" if c and c != "—" else "—")
+
+
+def fmt_measure_vs_mcl(viol_measure, unit, state_mcl) -> str:
+    """Render 'measured X unit vs Y MCL' when the numbers are present."""
+    m = _safe_str(viol_measure)
+    u = _safe_str(unit)
+    mcl = _safe_str(state_mcl)
+    if not m:
+        return "—"
+    out = m + (f" {u}" if u else "")
+    if mcl:
+        out += f" (limit {mcl}{f' {u}' if u else ''})"
+    return out
+
 st.set_page_config(
     page_title="CU Water Systems",
     page_icon="💧",
@@ -416,6 +513,31 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
     c5.metric("Owner", OWNER_TYPE_LABELS.get(own_code, own_code or "—"))
     c6.metric("Status", "Active" if _safe_str(row.get("pws_activity_code")) == "A" else "Inactive")
 
+    # Funding + sensitive-population flags — small chips when set. Grant
+    # eligibility is a warm handoff to CU's Lending program; school/daycare
+    # flags a sensitive population for prioritization.
+    grant_elig = _safe_str(row.get("is_grant_eligible_ind")).upper() == "Y"
+    school = _safe_str(row.get("is_school_or_daycare_ind")).upper() == "Y"
+    chips = []
+    if grant_elig:
+        chips.append(
+            "<span style='background:#e8f4ea;color:#1d6b34;border:1px solid #bfe0c6;"
+            "padding:0.25rem 0.7rem;border-radius:999px;font-size:0.8rem;font-weight:600;'>"
+            "✓ Grant-eligible · possible Lending handoff</span>"
+        )
+    if school:
+        chips.append(
+            "<span style='background:#fff4e0;color:#8a5a00;border:1px solid #f1d8a3;"
+            "padding:0.25rem 0.7rem;border-radius:999px;font-size:0.8rem;font-weight:600;'>"
+            "Serves a school or daycare</span>"
+        )
+    if chips:
+        st.markdown(
+            "<div style='display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.75rem 0 0.25rem 0;'>"
+            + "".join(chips) + "</div>",
+            unsafe_allow_html=True,
+        )
+
     st.markdown("**Violation history**")
     v = violations_df[violations_df["pwsid"] == pwsid].copy()
     if v.empty:
@@ -424,13 +546,39 @@ def render_system_detail(pwsid: str, systems_df, violations_df, lcr_df) -> None:
         v["status"] = v["rtc_date"].apply(
             lambda d: "Returned to compliance" if pd.notna(d) else "Open"
         )
-        v_display = v[[
-            "compl_per_begin_date", "violation_code", "violation_category_code",
-            "is_health_based_ind", "contaminant_code", "status", "rtc_date",
-        ]].sort_values("compl_per_begin_date", ascending=False)
-        v_display.columns = ["Begin", "Code", "Category", "Health-based",
-                             "Contaminant", "Status", "RTC date"]
-        st.dataframe(v_display, width="stretch", hide_index=True)
+        v = v.sort_values("compl_per_begin_date", ascending=False)
+        v_display = pd.DataFrame({
+            "Begin": v["compl_per_begin_date"].apply(
+                lambda d: d.strftime("%Y-%m-%d") if pd.notna(d) else "—"
+            ).values,
+            "Rule": v["rule_code"].apply(decode_rule).values,
+            "Category": v["violation_category_code"].apply(decode_category).values,
+            "Contaminant": v["contaminant_code"].apply(decode_contaminant).values,
+            "Measured vs limit": [
+                fmt_measure_vs_mcl(m, u, mcl)
+                for m, u, mcl in zip(
+                    v.get("viol_measure", pd.Series([None] * len(v))),
+                    v.get("unit_of_measure", pd.Series([None] * len(v))),
+                    v.get("state_mcl", pd.Series([None] * len(v))),
+                )
+            ],
+            "Health-based": v["is_health_based_ind"].apply(
+                lambda x: "Yes" if _safe_str(x) == "Y" else "No"
+            ).values,
+            "Urgency": v.get(
+                "public_notification_tier", pd.Series([None] * len(v))
+            ).apply(decode_tier).values,
+            "Status": v["status"].values,
+            "RTC date": v["rtc_date"].apply(
+                lambda d: d.strftime("%Y-%m-%d") if pd.notna(d) else "—"
+            ).values,
+        })
+        st.dataframe(
+            v_display,
+            width="stretch",
+            hide_index=True,
+            column_config={c: st.column_config.TextColumn(c) for c in v_display.columns},
+        )
 
     st.markdown("**Lead & copper samples**")
     l = lcr_df[lcr_df["pwsid"] == pwsid]
@@ -848,12 +996,15 @@ USECOLS = {
         "primary_source_code", "owner_type_code", "population_served_count",
         "service_connections_count", "admin_name", "org_name", "email_addr",
         "phone_number", "alt_phone_number", "pws_deactivation_date",
+        "is_grant_eligible_ind", "is_school_or_daycare_ind",
     ],
     "violations": [
         "pwsid", "primacy_agency_code", "violation_id",
         "compl_per_begin_date", "compl_per_end_date", "rtc_date",
         "is_health_based_ind", "violation_category_code", "violation_code",
         "contaminant_code", "status",
+        "rule_code", "viol_measure", "unit_of_measure", "state_mcl",
+        "public_notification_tier", "is_major_viol_ind",
     ],
     "lcr_samples": [
         "pwsid", "primacy_agency_code", "sample_id",
@@ -1521,32 +1672,69 @@ with tab_scorecard:
 with tab_watchlist:
     section(
         "CU watchlist",
-        "Small active community systems with open health-based violations.",
+        "Small active community systems that look like technical-assistance candidates.",
     )
-    st.caption(
-        "Small active community systems with at least one open health-based "
-        "violation. Sorted by population × open-violation count."
+    lens = st.radio(
+        "Watchlist lens",
+        options=[
+            "Health-based risk",
+            "Capacity risk (monitoring & reporting)",
+            "Both",
+        ],
+        horizontal=True,
+        help=(
+            "Health-based: open violations that are a direct health risk. "
+            "Capacity risk: open monitoring & reporting violations — missed "
+            "samples and late reports that signal a system struggling to keep "
+            "up administratively, often before a health problem appears."
+        ),
     )
+    LENS_CAPTIONS = {
+        "Health-based risk": (
+            "Small active community systems with at least one open health-based "
+            "violation. Sorted by population × open-violation count."
+        ),
+        "Capacity risk (monitoring & reporting)": (
+            "Small active community systems with open monitoring & reporting "
+            "violations — missed samples or late reports. These are capacity-"
+            "support candidates: the system is struggling to keep up, which "
+            "often precedes a health-based problem."
+        ),
+        "Both": (
+            "Small active community systems with any open health-based OR "
+            "monitoring & reporting violation. Sorted by population × open-"
+            "violation count."
+        ),
+    }
+    st.caption(LENS_CAPTIONS[lens])
 
     small_active = active_cws(systems_all)
     small_active = small_active[
         small_active["population_served_count"] < SMALL_SYSTEM_THRESHOLD
     ]
 
-    open_health = violations_all[
-        (violations_all["rtc_date"].isna())
-        & (violations_all["is_health_based_ind"] == "Y")
-    ]
+    open_v = violations_all[violations_all["rtc_date"].isna()]
+    is_health = open_v["is_health_based_ind"] == "Y"
+    is_mr = open_v["violation_category_code"].isin(MR_CATEGORIES)
+    if lens == "Health-based risk":
+        open_subset = open_v[is_health]
+        count_label = "Open health-based viols."
+    elif lens == "Capacity risk (monitoring & reporting)":
+        open_subset = open_v[is_mr]
+        count_label = "Open M/R viols."
+    else:
+        open_subset = open_v[is_health | is_mr]
+        count_label = "Open viols. (health + M/R)"
 
     counts = (
-        open_health.groupby("pwsid")
+        open_subset.groupby("pwsid")
         .size()
-        .reset_index(name="open_health_violations")
+        .reset_index(name="open_violations")
     )
 
     watch = small_active.merge(counts, on="pwsid", how="inner")
     watch["priority_score"] = (
-        watch["population_served_count"].fillna(0) * watch["open_health_violations"]
+        watch["population_served_count"].fillna(0) * watch["open_violations"]
     )
 
     parish = (
@@ -1569,7 +1757,7 @@ with tab_watchlist:
         "Parish / county": watch_sorted["county_served"].fillna("—").astype(str).values,
         "Population": watch_sorted["population_served_count"].apply(_fmt_int).values,
         "Connections": watch_sorted["service_connections_count"].apply(_fmt_int).values,
-        "Open health-based viols.": watch_sorted["open_health_violations"].apply(_fmt_int).values,
+        count_label: watch_sorted["open_violations"].apply(_fmt_int).values,
         "Priority": watch_sorted["priority_score"].apply(_fmt_int).values,
     })
 
@@ -1756,21 +1944,66 @@ with tab_lcr:
 with tab_violations:
     section(
         "Violations browser",
-        "Filter by category, status, and severity across selected states.",
+        "Filter by rule, urgency, status, and severity across selected states.",
     )
-    health_only = st.checkbox("Health-based only", value=True)
-    open_only = st.checkbox("Open only (no return-to-compliance date)", value=True)
+    fc1, fc2 = st.columns(2)
+    with fc1:
+        health_only = st.checkbox("Health-based only", value=True)
+        open_only = st.checkbox("Open only (no return-to-compliance date)", value=True)
+    with fc2:
+        tier1_only = st.checkbox(
+            "Tier 1 (acute) only",
+            value=False,
+            help="Tier 1 = acute health risk requiring 24-hour public notice.",
+        )
+        exclude_mr = st.checkbox(
+            "Exclude monitoring & reporting",
+            value=False,
+            help="Hide administrative M/R violations to focus on contaminant problems.",
+        )
 
     v = violations.copy()
     if health_only:
         v = v[v["is_health_based_ind"] == "Y"]
     if open_only:
         v = v[v["rtc_date"].isna()]
+    if tier1_only:
+        v = v[v["public_notification_tier"].apply(
+            lambda x: _safe_str(x).split(".")[0] == "1"
+        )]
+    if exclude_mr:
+        v = v[~v["violation_category_code"].isin(MR_CATEGORIES)]
 
-    c1, c2, c3 = st.columns(3)
+    # Rule filter — decode to plain names, let the user pick.
+    if not v.empty:
+        rule_opts = (
+            v["rule_code"].apply(decode_rule).value_counts().index.tolist()
+        )
+        picked_rules = st.multiselect(
+            "Filter by rule",
+            options=rule_opts,
+            default=[],
+            placeholder="All rules",
+        )
+        if picked_rules:
+            v = v[v["rule_code"].apply(decode_rule).isin(picked_rules)]
+
+    tier1_count = int(
+        v["public_notification_tier"].apply(
+            lambda x: _safe_str(x).split(".")[0] == "1"
+        ).sum()
+    ) if not v.empty else 0
+
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Violations", f"{len(v):,}")
     c2.metric("Distinct systems", f"{v['pwsid'].nunique():,}")
     c3.metric(
+        "Tier 1 (acute)",
+        f"{tier1_count:,}",
+        delta="urgent" if tier1_count else None,
+        delta_color="inverse",
+    )
+    c4.metric(
         "Median age (days)",
         f"{(pd.Timestamp.now() - v['compl_per_begin_date']).dt.days.median():.0f}"
         if not v.empty
@@ -1779,7 +2012,7 @@ with tab_violations:
 
     if not v.empty:
         cat_counts = (
-            v["violation_category_code"]
+            v["violation_category_code"].apply(decode_category)
             .value_counts()
             .reset_index()
         )
@@ -1798,9 +2031,19 @@ with tab_violations:
         "PWSID": v_sorted["pwsid"].astype(str).values,
         "System": v_sorted["pws_name"].fillna("—").astype(str).values,
         "Begin": v_sorted["compl_per_begin_date"].apply(_fmt_date).values,
-        "Category": v_sorted["violation_category_code"].astype(str).fillna("—").values,
-        "Contaminant": v_sorted["contaminant_code"].astype(str).fillna("—").values,
-        "Health-based": v_sorted["is_health_based_ind"].astype(str).fillna("—").values,
+        "Rule": v_sorted["rule_code"].apply(decode_rule).values,
+        "Category": v_sorted["violation_category_code"].apply(decode_category).values,
+        "Contaminant": v_sorted["contaminant_code"].apply(decode_contaminant).values,
+        "Measured vs limit": [
+            fmt_measure_vs_mcl(m, u, mcl)
+            for m, u, mcl in zip(
+                v_sorted["viol_measure"], v_sorted["unit_of_measure"], v_sorted["state_mcl"]
+            )
+        ],
+        "Health-based": v_sorted["is_health_based_ind"].apply(
+            lambda x: "Yes" if _safe_str(x) == "Y" else "No"
+        ).values,
+        "Urgency": v_sorted["public_notification_tier"].apply(decode_tier).values,
         "RTC date": v_sorted["rtc_date"].apply(_fmt_date).values,
     })
 
