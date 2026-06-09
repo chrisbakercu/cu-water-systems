@@ -105,13 +105,9 @@ STATE_DWW_URLS = {
     # Drinking Water Branch info page — has the branch phone and email
     # for staff to call when EPA contact is stale.
     "AL": "https://adem.alabama.gov/water/drinking-water-branch",
-    # OK DEQ DWW (sdwis.deq.state.ok.us) is unreachable from our fetcher;
-    # may or may not work from elsewhere. Keep the SearchDispatch URL for
-    # now — if confirmed broken, switch to OK DEQ's info page like AL.
-    "OK": (
-        "http://sdwis.deq.state.ok.us/DWW/JSP/SearchDispatch?"
-        "action=Water+System+Search&number={pwsid}"
-    ),
+    # OK DEQ DWW (sdwis.deq.state.ok.us) is unreachable too. Point to the
+    # DEQ Public Water Supply program page — has branch contact info.
+    "OK": "https://oklahoma.gov/deq/divisions/water-quality/public-water-supply.html",
     # MS DWW's standard SearchDispatch URL throws 500s — land on DWW home.
     "MS": "https://apps.msdh.ms.gov/DWW/",
     # TN moved off classic DWW to a Tableau viewer that doesn't accept
@@ -123,7 +119,7 @@ STATE_DWW_URLS = {
 STATE_DWW_LABELS = {
     "AL": "ADEM Drinking Water Branch",
     "MS": "MSDH Drinking Water Watch",
-    "OK": "OK DEQ Drinking Water Watch",
+    "OK": "OK DEQ Public Water Supply",
     "TN": "TDEC Drinking Water Watch",
     "TX": "TCEQ Drinking Water Viewer",
 }
@@ -132,7 +128,7 @@ STATE_DWW_LABELS = {
 # AL lands on an info page (no search box) — hint text mentions calling
 # the branch directly instead.
 STATE_DWW_REQUIRES_SEARCH = {"MS", "TN", "TX"}
-STATE_DWW_INFO_PAGE = {"AL"}
+STATE_DWW_INFO_PAGE = {"AL", "OK"}
 
 
 def _render_state_dww_link(pwsid: str, state_code: str) -> None:
@@ -150,8 +146,9 @@ def _render_state_dww_link(pwsid: str, state_code: str) -> None:
     if state_code in STATE_DWW_INFO_PAGE:
         button_text = f"Open {label}"
         hint = (
-            "AL's per-system Drinking Water Watch is unreachable. "
-            "The branch page has phone/email if you need to reach ADEM directly."
+            "The state's per-system Drinking Water Watch is currently "
+            "unreachable. This page has branch phone/email to contact the "
+            "agency directly."
         )
     elif state_code in STATE_DWW_REQUIRES_SEARCH:
         button_text = f"Search {label}"
