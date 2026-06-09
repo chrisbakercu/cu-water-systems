@@ -1024,9 +1024,20 @@ def _read_parquet_subset(path: Path, allowed: list[str]) -> pd.DataFrame:
     return pd.read_parquet(path, columns=cols)
 
 
+# Bump when USECOLS changes so st.cache_data (keyed on body + args, NOT on
+# module globals like USECOLS) can't serve a frame built with an old column
+# set. Included as an arg to load_from_parquet purely to participate in the
+# cache key.
+USECOLS_VERSION = 2
+
+
 @st.cache_data(show_spinner="Loading water system data...", max_entries=2)
-def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
-    """Load only the requested states. Bounded cache so toggling can't grow memory."""
+def load_from_parquet(states: tuple[str, ...], _usecols_version: int = USECOLS_VERSION) -> dict[str, pd.DataFrame]:
+    """Load only the requested states. Bounded cache so toggling can't grow memory.
+
+    `_usecols_version` participates in the cache key so changing USECOLS forces
+    a reload instead of serving a stale frame missing the new columns.
+    """
     name_map = {
         "systems": "water_systems",
         "violations": "violations",
@@ -1039,7 +1050,14 @@ def load_from_parquet(states: tuple[str, ...]) -> dict[str, pd.DataFrame]:
             _read_parquet_subset(PARQUET_DIR / state / f"{fname}.parquet", USECOLS[fname])
             for state in states
         ]
-        frames[key] = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        frame = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        # Guarantee every requested column exists. _read_parquet_subset silently
+        # drops columns absent on disk, so a schema-drifted parquet (or older
+        # pull) would otherwise KeyError downstream. Missing -> NA column.
+        for col in USECOLS[fname]:
+            if col not in frame.columns:
+                frame[col] = pd.NA
+        frames[key] = frame
     _coerce_dates(frames)
     # Cast frequently-grouped string columns to category — large memory win.
     _to_category = {
